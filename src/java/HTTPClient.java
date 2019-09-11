@@ -2,6 +2,9 @@ import java.io.*;
 import java.net.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 public class HTTPClient {
     private Socket socket;
@@ -13,7 +16,6 @@ public class HTTPClient {
         socket = new Socket(host, port);
         printWriter = new PrintWriter(socket.getOutputStream(), true);
         bufferedReader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-
     }
 
     //TODO: Close Client
@@ -24,9 +26,11 @@ public class HTTPClient {
     }
 
     //TODO: Serve Get Requests
-    public void get() throws IOException{
-        printWriter.println("GET /status/418 HTTP/1.0");
-        printWriter.println("Host: httpbin.org");
+    public void get(String host, String path, List<String> headers, String params) throws IOException{
+        printWriter.println("GET "+ path + params + " HTTP/1.1");
+        printWriter.println("Host: " + host);
+        if(headers != null)
+            headers.forEach(printWriter::println);
         printWriter.println("");
         printWriter.flush();
 
@@ -35,19 +39,20 @@ public class HTTPClient {
 
     //TODO: Serve Post Requests
     public void post() {
-        printWriter.println("POST /post HTTP/1.0");
-        printWriter.println("Host: httpbin.org");
+        printWriter.write("POST /post HTTP/1.1");
+        printWriter.write("Host: httpbin.org");
         printWriter.flush();
 
-        bufferedReader.lines().forEach(System.out::println);
     }
 
     public static void main(String[] args) throws IOException{
         HTTPClient client = new HTTPClient();
         try {
             //trying to establish connection to the server
+            ArrayList<String> headers = new ArrayList<>();
+            headers.add("User-Agent: Concordia-HTTP/1.0");
             client.start("httpbin.org",80);
-            client.post();
+            client.get(client.socket.getInetAddress().getHostName(), "/get", headers, "?hello=true");
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {

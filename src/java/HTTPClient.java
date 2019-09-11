@@ -34,10 +34,16 @@ public class HTTPClient {
     }
 
     //TODO: Serve Post Requests
-    public void post() {
+    public void post(String data) throws IOException {
         printWriter.println("POST /post HTTP/1.0");
         printWriter.println("Host: httpbin.org");
+        printWriter.println("Content-Length: "+data.length());
+        printWriter.println("Content-Type: application/json");
+        printWriter.println("");
+        printWriter.println(data);
         printWriter.flush();
+
+       /* System.out.println(bufferedReader.readLine());*/
 
         bufferedReader.lines().forEach(System.out::println);
     }
@@ -47,7 +53,7 @@ public class HTTPClient {
         try {
             //trying to establish connection to the server
             client.start("httpbin.org",80);
-            client.post();
+            client.post("{\"Assignment\":\"1\"}");
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {

@@ -34,9 +34,12 @@ public class HTTPClient {
     }
 
     //TODO: Serve Post Requests
-    public String post(String msg) {
-        printWriter.println(msg);
-        return null;
+    public void post() {
+        printWriter.println("POST /post HTTP/1.0");
+        printWriter.println("Host: httpbin.org");
+        printWriter.flush();
+
+        bufferedReader.lines().forEach(System.out::println);
     }
 
     public static void main(String[] args) throws IOException{
@@ -44,7 +47,7 @@ public class HTTPClient {
         try {
             //trying to establish connection to the server
             client.start("httpbin.org",80);
-            client.get();
+            client.post();
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {

@@ -32,7 +32,7 @@ public class HTTPClient {
     //TODO: Serve Post Requests
     public String post(String msg) {
         printWriter.println(msg);
-        
+
     }
 
     public static void main(String[] args) {

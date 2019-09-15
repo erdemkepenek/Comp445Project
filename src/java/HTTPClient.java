@@ -27,7 +27,7 @@ public class HTTPClient {
 
     //TODO: Serve Get Requests
     public void get(String host, String path, List<String> headers, String params) throws IOException{
-        printWriter.println("GET "+ path + params + " HTTP/1.1");
+        printWriter.println("GET "+ path + params + " HTTP/1.0");
         printWriter.println("Host: " + host);
         if(headers != null)
             headers.forEach(printWriter::println);
@@ -59,7 +59,7 @@ public class HTTPClient {
             ArrayList<String> headers = new ArrayList<>();
             headers.add("User-Agent: Concordia-HTTP/1.0");
             client.start("httpbin.org",80);
-            client.post("{\"Assignment\":\"1\"}");
+           // client.post("{\"Assignment\":\"1\"}");
             client.get(client.socket.getInetAddress().getHostName(), "/get", headers, "?hello=true");
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");

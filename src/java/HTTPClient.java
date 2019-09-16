@@ -38,16 +38,16 @@ public class HTTPClient {
     }
 
     //TODO: Serve Post Requests
-    public void post(String data) throws IOException {
-        printWriter.println("POST /post HTTP/1.0");
-        printWriter.println("Host: httpbin.org");
+    public void post(String host, String path, List<String> headers, String params ,String data) throws IOException {
+        printWriter.println("POST "+ path + params+" HTTP/1.0");
+        printWriter.println("Host: "+ host);
         printWriter.println("Content-Length: "+data.length());
         printWriter.println("Content-Type: application/json");
+        if(headers != null)
+            headers.forEach(printWriter::println);
         printWriter.println("");
         printWriter.println(data);
         printWriter.flush();
-
-       /* System.out.println(bufferedReader.readLine());*/
 
         bufferedReader.lines().forEach(System.out::println);
     }
@@ -59,7 +59,7 @@ public class HTTPClient {
             ArrayList<String> headers = new ArrayList<>();
             headers.add("User-Agent: Concordia-HTTP/1.0");
             client.start("httpbin.org",80);
-           // client.post("{\"Assignment\":\"1\"}");
+            client.post(client.socket.getInetAddress().getHostName(), "/post", headers, "?hello=true", "{\"Assignment\":\"1\"}");
             client.get(client.socket.getInetAddress().getHostName(), "/get", headers, "?hello=true");
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");

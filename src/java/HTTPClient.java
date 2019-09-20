@@ -12,7 +12,7 @@ public class HTTPClient {
     private BufferedReader bufferedReader;
 
     //TODO: Start Client
-    public void start(String host, int port) throws  IOException{
+    public void start(String host, int port) throws  IOException {
         socket = new Socket(host, port);
         printWriter = new PrintWriter(socket.getOutputStream(), true);
         bufferedReader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));

@@ -26,9 +26,10 @@ public class HTTPClient {
     }
 
     //TODO: Serve Get Requests
-    public void get(String host, String path, List<String> headers, String params) throws IOException{
-        printWriter.println("GET "+ path + params + " HTTP/1.0");
-        printWriter.println("Host: " + host);
+    public void get(URL url, List<String> headers) throws IOException{
+        String queryString = !url.getQuery().equals("")? "?" + url.getQuery(): "";
+        printWriter.println("GET "+ url.getPath() + queryString + " HTTP/1.0");
+        printWriter.println("Host: " + url.getHost());
         if(headers != null)
             headers.forEach(printWriter::println);
         printWriter.println("");
@@ -37,8 +38,9 @@ public class HTTPClient {
         bufferedReader.lines().forEach(System.out::println);
     }
 
+
     //TODO: Serve Post Requests
-    public void post(String host, String path, List<String> headers, String params ,String data) throws IOException {
+    public void post(String host, String path, List<String> headers, String params, String data) throws IOException {
         printWriter.println("POST "+ path + params+" HTTP/1.0");
         printWriter.println("Host: "+ host);
         printWriter.println("Content-Length: "+data.length());
@@ -57,10 +59,12 @@ public class HTTPClient {
         try {
             //trying to establish connection to the server
             ArrayList<String> headers = new ArrayList<>();
+            URL url = new URL("http://httpbin.org/get?hello=true");
+            int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
             headers.add("User-Agent: Concordia-HTTP/1.0");
-            client.start("httpbin.org",80);
-            client.post(client.socket.getInetAddress().getHostName(), "/post", headers, "?hello=true", "{\"Assignment\":\"1\"}");
-            client.get(client.socket.getInetAddress().getHostName(), "/get", headers, "?hello=true");
+            client.start(url.getHost(), port);
+            //client.post(client.socket.getInetAddress().getHostName(), "/post", headers, "?hello=true", "{\"Assignment\":\"1\"}");
+            client.get(url, headers);
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {

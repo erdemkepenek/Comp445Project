@@ -1,31 +1,40 @@
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.List;
+
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 
 public class httpc {
     static HTTPClient httpClient = new HTTPClient();
 
-    public static void httpcGet(String[] args){
-
-    }
-
-    public static ArrayList<String> parseHeaders(String[] args) {
-        ArrayList<String> headers = new ArrayList<>();
-        for(int i=0; i < args.length; i++) {
-            if(args[i].equals("-h")) {
-                headers.add(args[i+1]);
-            }
+    public static void httpcGet(String[] args) throws IOException{
+        OptionParser optionParser = new OptionParser("vh:");
+        OptionSet optionSet = optionParser.parse(args);
+        boolean verbose = optionSet.has("v");
+        List headers = optionSet.valuesOf("h");
+        try{
+            URL url = new URL(args[args.length-1]);
+            int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
+            httpClient.start(url.getHost(), port);
+            httpClient.get(url, headers);
+            httpClient.end();
+        }catch(MalformedURLException e) {
+            System.err.println("Invalid URL provided");
         }
-        return headers;
+
     }
+
 
     public static void httpcPost(String[] args){
 
     }
 
     public static void main(String[] args) throws IOException{
-        //checkFirstArgument(args);
+        checkFirstArgument(args);
 
 
     }

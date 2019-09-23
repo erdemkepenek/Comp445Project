@@ -28,11 +28,11 @@ public class HTTPClient {
     //TODO: Serve Get Requests
     public void get(URL url, List<String> headers) throws IOException{
         String queryString = !url.getQuery().equals("")? "?" + url.getQuery(): "";
-        printWriter.println("GET "+ url.getPath() + queryString + " HTTP/1.0");
-        printWriter.println("Host: " + url.getHost());
+        printWriter.print("GET "+ url.getPath() + queryString + " HTTP/1.0\r\n");
+        printWriter.print("Host: " + url.getHost() + "\r\n");
         if(headers != null)
             headers.forEach(printWriter::println);
-        printWriter.println("");
+        printWriter.print("\r\n");
         printWriter.flush();
 
         bufferedReader.lines().forEach(System.out::println);

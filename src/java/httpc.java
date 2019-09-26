@@ -15,6 +15,7 @@ public class httpc {
         OptionParser optionParser = new OptionParser("vh:d::f::");
         OptionSet optionSet = optionParser.parse(args);
         boolean verbose = optionSet.has("v");
+        httpClient.setVerbose(verbose);
         List headers = optionSet.valuesOf("h");
         if(optionSet.has("d")||optionSet.has("f")) {
             throw new RuntimeException("You cannot use this option while making a GET request.");

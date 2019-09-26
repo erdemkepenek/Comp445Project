@@ -10,6 +10,7 @@ public class HTTPClient {
     private Socket socket;
     private PrintWriter printWriter;
     private BufferedReader bufferedReader;
+    private boolean verbose = false;
 
     //TODO: Start Client
     public void start(String host, int port) throws  IOException {
@@ -27,13 +28,20 @@ public class HTTPClient {
 
     //TODO: Serve Get Requests
     public void get(URL url, List<String> headers) throws IOException{
-        String queryString = !url.getQuery().equals("")? "?" + url.getQuery(): "";
+        String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
         printWriter.print("GET "+ url.getPath() + queryString + " HTTP/1.0\r\n");
         printWriter.print("Host: " + url.getHost() + "\r\n");
         if(headers != null)
             headers.forEach(printWriter::println);
         printWriter.print("\r\n");
         printWriter.flush();
+
+        if(!verbose) {
+            String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
+            while (!responseLine.equals("")) {
+                responseLine = bufferedReader.readLine();
+            }
+        }
 
         bufferedReader.lines().forEach(System.out::println);
     }
@@ -52,6 +60,10 @@ public class HTTPClient {
         printWriter.flush();
 
         bufferedReader.lines().forEach(System.out::println);
+    }
+
+    public void setVerbose(boolean verbose) {
+        this.verbose = verbose;
     }
 
     public static void main(String[] args) throws IOException{

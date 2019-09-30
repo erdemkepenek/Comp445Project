@@ -1,4 +1,7 @@
+import java.io.File;
+import java.io.*;
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -21,6 +24,7 @@ public class httpc {
             throw new RuntimeException("You cannot use this option while making a GET request.");
         }
         try{
+            System.out.println(args[args.length-1]);
             URL url = new URL(args[args.length-1]);
             int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
             httpClient.start(url.getHost(), port);
@@ -33,7 +37,43 @@ public class httpc {
     }
 
 
-    public static void httpcPost(String[] args){
+    public static void httpcPost(String[] args) throws IOException{
+        String dataFile = "";
+        OptionParser optionParser = new OptionParser("vh:d::f:o::");
+        OptionSet optionSet = optionParser.parse(args);
+        boolean verbose = optionSet.has("v");
+        httpClient.setVerbose(verbose);
+        List headers = optionSet.valuesOf("h");
+        if((optionSet.has("d")&&optionSet.has("f")) || (!optionSet.has("d") && !optionSet.has("f"))) {
+            if(optionSet.has("d") && optionSet.has("f")) {
+                throw new RuntimeException("You cannot use both -d, -f options while making a Post request.");
+            }
+            if(!optionSet.has("d") && !optionSet.has("f")){
+                throw new RuntimeException("You must use at least one of the -d, -f options while making a Post request.");
+            }
+        }
+        if(optionSet.has("d")){
+            dataFile = String.valueOf(optionSet.valuesOf("d").get(0));
+        }
+        if(optionSet.has("f")) {
+            BufferedReader br = new BufferedReader(new FileReader(String.valueOf(optionSet.valuesOf("f").get(0))));
+            do {
+                dataFile = dataFile + br.readLine();
+            } while ((br.readLine()) != null);
+        }
+        if(optionSet.has("o")){
+            System.setOut(new PrintStream(new FileOutputStream(String.valueOf(optionSet.valuesOf("o").get(0)))));
+        }
+        try{
+            URL url = new URL(args[args.length-1]);
+            int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
+            httpClient.start(url.getHost(), port);
+            httpClient.post(url, headers,dataFile);
+        }catch(MalformedURLException e) {
+            System.err.println("Invalid URL provided");
+        }finally {
+            httpClient.end();
+        }
 
     }
 

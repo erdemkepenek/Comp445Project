@@ -23,9 +23,17 @@ public class httpc {
         if(optionSet.has("d")||optionSet.has("f")) {
             throw new RuntimeException("You cannot use this option while making a GET request.");
         }
+        if(optionSet.has("o")){
+            System.setOut(new PrintStream(new FileOutputStream(String.valueOf(optionSet.valuesOf("o").get(0)))));
+        }
         try{
-            System.out.println(args[args.length-1]);
-            URL url = new URL(args[args.length-1]);
+            String host;
+            if(optionSet.has("o")){
+                host=args[args.length-3];
+            }else{
+                host=args[args.length-1];
+            }
+            URL url = new URL(host);
             int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
             httpClient.start(url.getHost(), port);
             httpClient.get(url, headers);
@@ -65,7 +73,13 @@ public class httpc {
             System.setOut(new PrintStream(new FileOutputStream(String.valueOf(optionSet.valuesOf("o").get(0)))));
         }
         try{
-            URL url = new URL(args[args.length-1]);
+            String host;
+            if(optionSet.has("o")){
+                host=args[args.length-3];
+            }else{
+                host=args[args.length-1];
+            }
+            URL url = new URL(host);
             int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
             httpClient.start(url.getHost(), port);
             httpClient.post(url, headers,dataFile);

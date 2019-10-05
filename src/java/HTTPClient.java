@@ -32,14 +32,16 @@ public class HTTPClient {
 
     //TODO: Close Client
     public void end() throws  IOException{
-        if(socket != null){
-            socket.close();
+        if(socket !=null || httpsSocket !=null) {
+            if(socket != null){
+                socket.close();
+            }
+            if(httpsSocket != null) {
+                httpsSocket.close();
+            }
+            printWriter.close();
+            bufferedReader.close();
         }
-        else {
-            httpsSocket.close();
-        }
-        printWriter.close();
-        bufferedReader.close();
     }
 
     //TODO: Serve Get Requests

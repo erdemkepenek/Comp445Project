@@ -16,6 +16,7 @@ public class HTTPClient {
     private PrintWriter printWriter;
     private BufferedReader bufferedReader;
     private boolean verbose = false;
+    int redirects = 0;
 
     //TODO: Start Client
     public void start(String host, int port, String scheme) throws  IOException {
@@ -79,6 +80,10 @@ public class HTTPClient {
     }
 
     private void redirect(List<String> headers, String data) throws IOException {
+        redirects ++;
+        if(redirects > 5) {
+            throw new RuntimeException("The server requested a redirect over 5 times, this might be due to an infinite redirect loop.\nConnection closed.");
+        }
         String newLocation = bufferedReader.readLine();
         while(!newLocation.contains("Location")) {
             newLocation = bufferedReader.readLine();

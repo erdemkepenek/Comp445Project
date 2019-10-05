@@ -15,7 +15,7 @@ public class httpc {
     static private HTTPClient httpClient = new HTTPClient();
 
     public static void httpcGet(String[] args) throws IOException{
-        OptionParser optionParser = new OptionParser("vh:d::f::");
+        OptionParser optionParser = new OptionParser("vh:d::f::o::");
         OptionSet optionSet = optionParser.parse(args);
         boolean verbose = optionSet.has("v");
         httpClient.setVerbose(verbose);

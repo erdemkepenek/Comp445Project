@@ -1,3 +1,7 @@
+import sun.security.ssl.SSLSocketImpl;
+
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
 import java.io.*;
 import java.net.*;
 import java.io.IOException;
@@ -8,31 +12,45 @@ import java.util.List;
 
 public class HTTPClient {
     private Socket socket;
+    private SSLSocket httpsSocket;
     private PrintWriter printWriter;
     private BufferedReader bufferedReader;
     private boolean verbose = false;
 
     //TODO: Start Client
-    public void start(String host, int port) throws  IOException {
-        socket = new Socket(host, port);
-        printWriter = new PrintWriter(socket.getOutputStream(), true);
-        bufferedReader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+    public void start(String host, int port, String scheme) throws  IOException {
+        if(scheme.equals("https")) {
+            httpsSocket = (SSLSocket) SSLSocketFactory.getDefault().createSocket(InetAddress.getByName(host), port);
+            printWriter = new PrintWriter(httpsSocket.getOutputStream(), true);
+            bufferedReader = new BufferedReader(new InputStreamReader(httpsSocket.getInputStream(), StandardCharsets.UTF_8));
+        }else{
+            socket = new Socket(InetAddress.getByName(host), port);
+            printWriter = new PrintWriter(socket.getOutputStream(), true);
+            bufferedReader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+        }
     }
 
     //TODO: Close Client
     public void end() throws  IOException{
-        socket.close();
+        if(socket != null){
+            socket.close();
+        }
+        else {
+            httpsSocket.close();
+        }
         printWriter.close();
         bufferedReader.close();
     }
 
     //TODO: Serve Get Requests
     public void get(URL url, List<String> headers) throws IOException{
+        String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
-        printWriter.print("GET "+ url.getPath() + queryString + " HTTP/1.0\r\n");
+        printWriter.print("GET "+ pathString + queryString + " HTTP/1.0\r\n");
         printWriter.print("Host: " + url.getHost() + "\r\n");
-        if(headers != null)
-            headers.forEach(printWriter::println);
+        for(String header: headers) {
+            printWriter.print(header + "\r\n");
+        }
         printWriter.print("\r\n");
         printWriter.flush();
 
@@ -86,8 +104,8 @@ public class HTTPClient {
             URL urlPost = new URL(host+"/post"+arguments);
             int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
             headers.add("User-Agent: Concordia-HTTP/1.0");
-            client.start(url.getHost(), port);
-            client.post(urlPost,headers,data);
+            client.start(url.getHost(), port, url.getProtocol());
+  //          client.post(urlPost,headers,data);
             client.get(urlGet, headers);
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");

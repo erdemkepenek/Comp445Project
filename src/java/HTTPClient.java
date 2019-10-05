@@ -56,6 +56,9 @@ public class HTTPClient {
         printWriter.print("\r\n");
         printWriter.flush();
 
+        bufferedReader.mark(1000);
+        verifyStatusCode(headers, null);
+
         if(!verbose) {
             String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
             while (!responseLine.equals("")) {
@@ -64,6 +67,35 @@ public class HTTPClient {
         }
 
         bufferedReader.lines().forEach(System.out::println);
+    }
+
+    private void verifyStatusCode(List<String> headers, String data) throws IOException {
+        String statusCode = bufferedReader.readLine();
+        if(statusCode.contains("301") || statusCode.contains("302")) {
+            redirect(headers, data);
+        }else{
+            bufferedReader.reset();
+        }
+    }
+
+    private void redirect(List<String> headers, String data) throws IOException {
+        String newLocation = bufferedReader.readLine();
+        while(!newLocation.contains("Location")) {
+            newLocation = bufferedReader.readLine();
+        }
+        String newHost = newLocation.substring(newLocation.indexOf(' ')+1);
+        if(!newHost.contains("http")) {
+            newHost = socket != null? "http://" + socket.getInetAddress().getHostName() + newHost: "https://" + httpsSocket.getInetAddress().getHostName() + newHost;
+        }
+        URL redirectURL = new URL(newHost);
+        end();
+        int port = redirectURL.getPort() != -1? redirectURL.getPort(): redirectURL.getDefaultPort();
+        start(redirectURL.getHost(), port, redirectURL.getProtocol());
+        if(data!=null) {
+            post(redirectURL, headers, data);
+        }else {
+            get(redirectURL, headers);
+        }
     }
 
 

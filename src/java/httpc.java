@@ -92,7 +92,11 @@ public class httpc {
     }
 
     public static void main(String[] args) throws IOException{
-        checkFirstArgument(args);
+        try{
+            checkFirstArgument(args);
+        }catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
     }
 
     private static void checkFirstArgument(String[] args) throws IOException{

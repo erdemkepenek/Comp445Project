@@ -72,6 +72,7 @@ public class HTTPClient {
 
     private void verifyStatusCode(List<String> headers, String data) throws IOException {
         String statusCode = bufferedReader.readLine();
+        System.out.println(statusCode);
         if(statusCode.contains("301") || statusCode.contains("302")) {
             redirect(headers, data);
         }else{
@@ -106,8 +107,9 @@ public class HTTPClient {
 
     //TODO: Serve Post Requests
     public void post(URL url, List<String> headers, String data) throws IOException {
+        String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
-        printWriter.println("POST "+ url.getPath() + queryString+" HTTP/1.0");
+        printWriter.println("POST "+ pathString + queryString+" HTTP/1.0");
         printWriter.println("Host: "+ url.getHost());
         printWriter.println("Content-Length: "+data.length());
         printWriter.println("Content-Type: application/json");
@@ -116,6 +118,8 @@ public class HTTPClient {
         printWriter.println("");
         printWriter.println(data);
         printWriter.flush();
+        bufferedReader.mark(1000);
+        verifyStatusCode(headers, null);
         if(!verbose) {
             String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
             while (!responseLine.equals("")) {
@@ -144,8 +148,8 @@ public class HTTPClient {
             int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
             headers.add("User-Agent: Concordia-HTTP/1.0");
             client.start(url.getHost(), port, url.getProtocol());
-  //          client.post(urlPost,headers,data);
-            client.get(urlGet, headers);
+            client.post(urlPost,headers,data);
+            //client.get(urlGet, headers);
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {

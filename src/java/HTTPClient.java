@@ -16,8 +16,8 @@ public class HTTPClient {
     private PrintWriter printWriter;
     private BufferedReader bufferedReader;
     private boolean verbose = false;
+    private int redirects = 0;
 
-    //TODO: Start Client
     public void start(String host, int port, String scheme) throws  IOException {
         if(scheme.equals("https")) {
             httpsSocket = (SSLSocket) SSLSocketFactory.getDefault().createSocket(InetAddress.getByName(host), port);
@@ -30,7 +30,6 @@ public class HTTPClient {
         }
     }
 
-    //TODO: Close Client
     public void end() throws  IOException{
         if(socket !=null || httpsSocket !=null) {
             if(socket != null){
@@ -44,7 +43,6 @@ public class HTTPClient {
         }
     }
 
-    //TODO: Serve Get Requests
     public void get(URL url, List<String> headers) throws IOException{
         String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
@@ -56,6 +54,9 @@ public class HTTPClient {
         printWriter.print("\r\n");
         printWriter.flush();
 
+        bufferedReader.mark(1000);
+        verifyStatusCode(headers, null);
+
         if(!verbose) {
             String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
             while (!responseLine.equals("")) {
@@ -66,11 +67,44 @@ public class HTTPClient {
         bufferedReader.lines().forEach(System.out::println);
     }
 
+    private void verifyStatusCode(List<String> headers, String data) throws IOException {
+        String statusCode = bufferedReader.readLine();
+        if(statusCode.contains("301") || statusCode.contains("302")) {
+            redirect(headers, data);
+        }else{
+            bufferedReader.reset();
+        }
+    }
 
-    //TODO: Serve Post Requests
+    private void redirect(List<String> headers, String data) throws IOException {
+        redirects ++;
+        if(redirects > 5) {
+            throw new RuntimeException("The server requested a redirect over 5 times, this might be due to an infinite redirect loop.");
+        }
+        String newLocation = bufferedReader.readLine();
+        while(!newLocation.contains("Location")) {
+            newLocation = bufferedReader.readLine();
+        }
+        String newHost = newLocation.substring(newLocation.indexOf(' ')+1);
+        if(!newHost.contains("http")) {
+            newHost = socket != null? "http://" + socket.getInetAddress().getHostName() + newHost: "https://" + httpsSocket.getInetAddress().getHostName() + newHost;
+        }
+        URL redirectURL = new URL(newHost);
+        end();
+        int port = redirectURL.getPort() != -1? redirectURL.getPort(): redirectURL.getDefaultPort();
+        start(redirectURL.getHost(), port, redirectURL.getProtocol());
+        if(data!=null) {
+            post(redirectURL, headers, data);
+        }else {
+            get(redirectURL, headers);
+        }
+    }
+
+
     public void post(URL url, List<String> headers, String data) throws IOException {
+        String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
-        printWriter.println("POST "+ url.getPath() + queryString+" HTTP/1.0");
+        printWriter.println("POST "+ pathString + queryString+" HTTP/1.0");
         printWriter.println("Host: "+ url.getHost());
         printWriter.println("Content-Length: "+data.length());
         printWriter.println("Content-Type: application/json");
@@ -79,6 +113,9 @@ public class HTTPClient {
         printWriter.println("");
         printWriter.println(data);
         printWriter.flush();
+
+        bufferedReader.mark(1000);
+        verifyStatusCode(headers, data);
         if(!verbose) {
             String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
             while (!responseLine.equals("")) {
@@ -93,22 +130,28 @@ public class HTTPClient {
         this.verbose = verbose;
     }
 
+    //Main method used to test the library
     public static void main(String[] args) throws IOException{
         HTTPClient client = new HTTPClient();
+        client.setVerbose(true);
         try {
             //trying to establish connection to the server
             ArrayList<String> headers = new ArrayList<>();
             String host = "http://httpbin.org";
             String arguments = "?hello=true";
             String data = "{\"Assignment\":\"1\"}";
-            URL url = new URL(host);
             URL urlGet = new URL(host+"/get"+arguments);
             URL urlPost = new URL(host+"/post"+arguments);
-            int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
+            int getPort = urlGet.getPort() != -1? urlGet.getPort(): urlGet.getDefaultPort();
+            int postPort = urlPost.getPort() != -1? urlPost.getPort(): urlPost.getDefaultPort();
             headers.add("User-Agent: Concordia-HTTP/1.0");
-            client.start(url.getHost(), port, url.getProtocol());
-  //          client.post(urlPost,headers,data);
+            System.out.println("TEST GET REQUEST");
+            client.start(urlGet.getHost(), getPort, urlGet.getProtocol());
             client.get(urlGet, headers);
+            client.end();
+            System.out.println("\nTEST POST REQUEST");
+            client.start(urlPost.getHost(), postPort, urlPost.getProtocol());
+            client.post(urlPost,headers,data);
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {

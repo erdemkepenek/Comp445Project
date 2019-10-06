@@ -92,7 +92,15 @@ public class httpc {
     }
 
     public static void main(String[] args) throws IOException{
-        checkFirstArgument(args);
+        if(args.length == 0) {
+            System.err.println("No arguments entered, please retry with the correct arguments");
+            return;
+        }
+        try{
+            checkFirstArgument(args);
+        }catch (Exception e) {
+            System.out.println(e.getMessage() +"\nConnection closed");
+        }
     }
 
     private static void checkFirstArgument(String[] args) throws IOException{

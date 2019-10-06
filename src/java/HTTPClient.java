@@ -1,5 +1,3 @@
-import sun.security.ssl.SSLSocketImpl;
-
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import java.io.*;
@@ -7,7 +5,6 @@ import java.net.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class HTTPClient {

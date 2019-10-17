@@ -1,0 +1,2 @@
+Hello world, this is the file 'hello.txt'.
+Have a nice day.

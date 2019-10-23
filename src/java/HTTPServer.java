@@ -27,14 +27,10 @@ public class HTTPServer {
     }
     private static void routeRequest(String requestLine) throws IOException{
         StringTokenizer st = new StringTokenizer(requestLine);
-        System.out.println(requestLine);
         String method = st.nextToken();
         String fileName = st.nextToken();
         String version = st.nextToken();
         String data ="{\"Assignment\":\"1\"}";
-        System.out.println(method);
-        System.out.println(fileName);
-        System.out.println(version);
         switch (method){
             case "GET": processGet(fileName, version); break;
             case "POST": processPost(fileName,version); break;
@@ -86,14 +82,10 @@ public class HTTPServer {
 
     private static void processPost(String fileName, String version) throws IOException{
         if(!fileName.equals("/")) {
-            File file = new File(rootPath + fileName);
             try {
-                ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                ObjectOutputStream oos = new ObjectOutputStream(bos);
-                oos.writeObject(file);
-                bos.close();
-                oos.close();
-                byte[] bytes = bos.toByteArray();
+                String response = "File Created.\r\n";
+                byte[] bytes = response.getBytes();
+                /*byte[] bytes = bos.toByteArray();*/
                 output.writeBytes(version + " 200 OK\r\n");
                 output.writeBytes("Content-Type: application/json\r\n");
                 output.writeBytes("Content-Length: " + bytes.length + "\r\n");
@@ -107,21 +99,47 @@ public class HTTPServer {
                 }
                 while (input.readLine() != null);
                 data = line.get(line.size()-1);
-                PrintWriter writer = new PrintWriter(rootPath+fileName, "UTF-8");
-                writer.println(data);
-                writer.close();
-                System.out.println(data);
+                String[] parts = fileName.split("(?=/)");
+                if(parts.length > 1){
+                    File folderDirectory=rootPath;
+                    for(int i =0; i+1<parts.length ; i++)
+                    {
+                        folderDirectory = new File(folderDirectory+parts[i]);
+                        if (! folderDirectory.exists()){
+                            folderDirectory.mkdir();
+                        }
+                    }
+
+                }
+                File file = new File(rootPath +fileName);
+                FileWriter fileWriter = new FileWriter(file.getAbsoluteFile());
+                BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
+                bufferedWriter.write(data);
+                bufferedWriter.close();
+                fileWriter.close();
             }
             catch (Exception e){
-                String missingPath = file.getPath().toString() + " doesn't exist, please make sure the file's there or change your root directory.\r\n";
-
+                String rightFormat = "Please make sure that you send data in the right format.\r\n";
+                byte[] bytes = rightFormat.getBytes();
                 output.writeBytes(version + " 404 Not Found\r\n");
                 output.writeBytes("Content-Type: application/json\r\n");
-                output.writeBytes("Content-Length: " + missingPath.length() + "\r\n");
+                output.writeBytes("Content-Length: " + bytes.length + "\r\n");
+                output.writeBytes("Connection: close\r\n");
                 output.writeBytes("\r\n");
-                output.writeBytes(missingPath + "\r\n");
+                output.write(bytes);
                 output.flush();
             }
+        }else {
+            String rightPath ="Please Make sure to add path and file name with the host.\r\n";
+
+            byte[] bytes = rightPath.getBytes();
+            output.writeBytes(version + " 200 OK\r\n");
+            output.writeBytes("Content-Type: application/json\r\n");
+            output.writeBytes("Content-Length: " + bytes.length + "\r\n");
+            output.writeBytes("Connection: close\r\n");
+            output.writeBytes("\r\n");
+            output.write(bytes);
+            output.flush();
         }
     }
 }

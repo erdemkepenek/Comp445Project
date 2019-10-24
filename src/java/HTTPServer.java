@@ -7,7 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.StringTokenizer;
 
 public class HTTPServer {
@@ -29,20 +28,19 @@ public class HTTPServer {
         int port = !optionSet.has("p")? 8080 : Integer.parseInt(optionSet.valueOf("p").toString());
 
         if (port < 1024) {
-            System.out.println("Illegal port used! Valid ports are 1024 and above.");
-            System.exit(0);
+            quitServer("Illegal port used! Valid ports are 1024 and above.");
         }
 
         rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data/" + userRoot);
         if(!rootPath.isDirectory() || !rootPath.exists()) {
-            System.out.println("Invalid directory\ninitialization failed");
-            System.exit(0);
+            quitServer("Invalid directory\ninitialization failed");
         }
         if(!rootPath.toString().contains(safePath) || rootPath.toString().contains("..")) {
-            System.out.println("Unsafe directory chosen, you may only choose folders inside the \"data\" folder.");
-            System.exit(0);
+            quitServer("Unsafe directory chosen, you may only choose folders inside the \"data\" folder.");
         }
         ServerSocket server = new ServerSocket(port);
+        System.out.println("HTTPFS is now live on port " + port);
+
         while(true){
             client = server.accept();
             input = new BufferedReader(new InputStreamReader(client.getInputStream()));
@@ -57,11 +55,20 @@ public class HTTPServer {
         String fileName = st.nextToken();
         String version = st.nextToken();
 
+        if (fileName.equals("/exit")) {
+            quitServer("Server terminated successfully!");
+        }
         switch (method){
             case "GET": processGet(fileName, version); break;
             case "POST": processPost(fileName,version); break;
         }
     }
+
+    private static void quitServer(String message) {
+        System.out.println(message);
+        System.exit(0);
+    }
+
     private static void processGet(String fileName, String version) throws IOException{
         if(!fileName.equals("/")) {
             File file = new File(rootPath + fileName);
@@ -80,6 +87,7 @@ public class HTTPServer {
                 output.write(fileBytes);
                 output.flush();
             }
+
             catch (IOException e){
                 String missingPath = "\"" + file.getName() + "\" doesn't exist, please make sure the file's there or change your root directory.\r\n";
                 output.writeBytes(version + " 404 Not Found\r\n");

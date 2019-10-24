@@ -1,9 +1,13 @@
+import joptsimple.OptionParser;
+import joptsimple.OptionSet;
+
 import java.io.*;
 import java.net.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.StringTokenizer;
 
 public class HTTPServer {
@@ -14,9 +18,31 @@ public class HTTPServer {
     private static PrintWriter writer;
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static String data = "";
+    private static boolean verbose = false;
 
     public static void main(String[] args) throws IOException {
-        ServerSocket server = new ServerSocket(8080);
+        OptionParser optionParser= new OptionParser("vp::d::");
+        OptionSet optionSet = optionParser.parse(args);
+
+        String safePath = rootPath.toString();
+        String userRoot = !optionSet.has("d") ? "" : optionSet.valueOf("d").toString();
+        int port = !optionSet.has("p")? 8080 : Integer.parseInt(optionSet.valueOf("p").toString());
+
+        if (port < 1024) {
+            System.out.println("Illegal port used! Valid ports are 1024 and above.");
+            System.exit(0);
+        }
+
+        rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data/" + userRoot);
+        if(!rootPath.isDirectory() || !rootPath.exists()) {
+            System.out.println("Invalid directory\ninitialization failed");
+            System.exit(0);
+        }
+        if(!rootPath.toString().contains(safePath) || rootPath.toString().contains("..")) {
+            System.out.println("Unsafe directory chosen, you may only choose folders inside the \"data\" folder.");
+            System.exit(0);
+        }
+        ServerSocket server = new ServerSocket(port);
         while(true){
             client = server.accept();
             input = new BufferedReader(new InputStreamReader(client.getInputStream()));
@@ -30,7 +56,7 @@ public class HTTPServer {
         String method = st.nextToken();
         String fileName = st.nextToken();
         String version = st.nextToken();
-        String data ="{\"Assignment\":\"1\"}";
+
         switch (method){
             case "GET": processGet(fileName, version); break;
             case "POST": processPost(fileName,version); break;
@@ -39,7 +65,12 @@ public class HTTPServer {
     private static void processGet(String fileName, String version) throws IOException{
         if(!fileName.equals("/")) {
             File file = new File(rootPath + fileName);
+
             try {
+                if(file.getPath().contains("..")) {
+                    throw new RuntimeException();
+                }
+
                 byte[] fileBytes = Files.readAllBytes(file.toPath());
                 output.writeBytes(version + " 200 OK\r\n");
                 output.writeBytes("Content-Type: text/html\r\n");
@@ -49,9 +80,8 @@ public class HTTPServer {
                 output.write(fileBytes);
                 output.flush();
             }
-            catch (Exception e){
-                String missingPath = file.getPath().toString() + " doesn't exist, please make sure the file's there or change your root directory.\r\n";
-
+            catch (IOException e){
+                String missingPath = "\"" + file.getName() + "\" doesn't exist, please make sure the file's there or change your root directory.\r\n";
                 output.writeBytes(version + " 404 Not Found\r\n");
                 output.writeBytes("Content-Type: text/tml\r\n");
                 output.writeBytes("Content-Length: " + missingPath.length() + "\r\n");
@@ -59,16 +89,27 @@ public class HTTPServer {
                 output.writeBytes(missingPath + "\r\n");
                 output.flush();
             }
+            catch (RuntimeException e){
+                sendForbiddenResponse(version);
+            }
         }
         else {
             String availableFiles = "The following files are available at the current directory:\r\n";
 
-            for(String name : rootPath.list()) {
-                availableFiles += (name +"\r\n");
-            }
-            if(rootPath.list().length == 0) {
+            File[] currentFolderFiles = new File(rootPath.toString()).listFiles();
+
+            if(currentFolderFiles == null || currentFolderFiles.length == 0) {
                 availableFiles = "There are no files available at the current directory.\r\n";
             }
+
+            for(File f : currentFolderFiles) {
+                if(!f.isDirectory()) {
+                    availableFiles += (f.getName() + "\r\n");
+                }else{
+                    availableFiles += (f.getName() + " <directory>\r\n");
+                }
+            }
+
 
             output.writeBytes(version + " 200 OK\r\n");
             output.writeBytes("Content-Type: text/html\r\n");
@@ -83,9 +124,11 @@ public class HTTPServer {
     private static void processPost(String fileName, String version) throws IOException{
         if(!fileName.equals("/")) {
             try {
+                if(fileName.contains("..")) {
+                    throw new RuntimeException();
+                }
                 String response = "File Created.\r\n";
                 byte[] bytes = response.getBytes();
-                /*byte[] bytes = bos.toByteArray();*/
                 output.writeBytes(version + " 200 OK\r\n");
                 output.writeBytes("Content-Type: application/json\r\n");
                 output.writeBytes("Content-Length: " + bytes.length + "\r\n");
@@ -101,10 +144,10 @@ public class HTTPServer {
                 data = line.get(line.size()-1);
                 String[] parts = fileName.split("(?=/)");
                 if(parts.length > 1){
-                    File folderDirectory=rootPath;
+                    File folderDirectory = rootPath;
                     for(int i =0; i+1<parts.length ; i++)
                     {
-                        folderDirectory = new File(folderDirectory+parts[i]);
+                        folderDirectory = new File(folderDirectory + parts[i]);
                         if (! folderDirectory.exists()){
                             folderDirectory.mkdir();
                         }
@@ -118,7 +161,12 @@ public class HTTPServer {
                 bufferedWriter.close();
                 fileWriter.close();
             }
-            catch (Exception e){
+
+            catch (RuntimeException e){
+                sendForbiddenResponse(version);
+            }
+
+            catch (IOException e){
                 String rightFormat = "Please make sure that you send data in the right format.\r\n";
                 byte[] bytes = rightFormat.getBytes();
                 output.writeBytes(version + " 404 Not Found\r\n");
@@ -129,6 +177,7 @@ public class HTTPServer {
                 output.write(bytes);
                 output.flush();
             }
+
         }else {
             String rightPath ="Please Make sure to add path and file name with the host.\r\n";
 
@@ -141,5 +190,15 @@ public class HTTPServer {
             output.write(bytes);
             output.flush();
         }
+    }
+
+    private static void sendForbiddenResponse(String version) throws IOException {
+        String errorMessage = "Security Error: You can't leave the root directory!\r\n";
+        output.writeBytes(version + " 403 Forbidden\r\n");
+        output.writeBytes("Content-Type: text/tml\r\n");
+        output.writeBytes("Content-Length: " + errorMessage.length() + "\r\n");
+        output.writeBytes("\r\n");
+        output.writeBytes(errorMessage + "\r\n");
+        output.flush();
     }
 }

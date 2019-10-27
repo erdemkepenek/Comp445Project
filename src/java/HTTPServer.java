@@ -42,6 +42,9 @@ public class HTTPServer implements Runnable {
         OptionSet optionSet = optionParser.parse(args);
 
         String safePath = rootPath.toString();
+        if(!rootPath.exists()) {
+            rootPath.mkdir();
+        }
         String userRoot = !optionSet.has("d") ? "" : optionSet.valueOf("d").toString();
         verbose = optionSet.has("v");
         if(args.length != 0 && args[0].equals("help")) {
@@ -106,7 +109,7 @@ public class HTTPServer implements Runnable {
         if(!fileName.equals("/")) {
             File file = new File(rootPath + fileName);
             try {
-                if(file.getPath().contains("..") || !file.canRead()) {
+                if(file.getPath().contains("..") || (file.exists() &&!file.canRead())) {
                     throw new RuntimeException();
                 }
 

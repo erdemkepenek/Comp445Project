@@ -7,6 +7,7 @@ import java.net.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
+import java.util.ArrayList;
 import java.util.StringTokenizer;
 
 public class HTTPServer implements Runnable {
@@ -18,6 +19,7 @@ public class HTTPServer implements Runnable {
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static String data = "";
     private static boolean verbose;
+    private static ArrayList<String> fileNames = new ArrayList<String>();
 
     public HTTPServer(Socket s){
         client=s;
@@ -96,7 +98,10 @@ public class HTTPServer implements Runnable {
 
     private static void processGet(String fileName, String version) throws IOException{
         String headers = getHeaders(false);
+        while(fileNames.contains(fileName)){
 
+        }
+        fileNames.add(fileName);
         if(!fileName.equals("/")) {
             File file = new File(rootPath + fileName);
             try {
@@ -153,6 +158,7 @@ public class HTTPServer implements Runnable {
             catch (RuntimeException e){
                 sendForbiddenResponse(version, headers);
             }
+            fileNames.remove(fileName);
         }
         else {
             String availableFiles = "The following files are available at the current directory:\r\n";
@@ -194,8 +200,10 @@ public class HTTPServer implements Runnable {
 
     private static void processPost(String fileName, String version) throws IOException{
         String headers = getHeaders(true);
+        while(fileNames.contains(fileName)){
 
-
+        }
+        fileNames.add(fileName);
         if(!fileName.equals("/")) {
             try {
                 if(fileName.contains("..")) {
@@ -280,6 +288,7 @@ public class HTTPServer implements Runnable {
                         "\r\n");
                 output.flush();
             }
+            fileNames.remove(fileName);
 
         }else {
             String rightPath ="Please Make sure to add path and file name with the host.\r\n";

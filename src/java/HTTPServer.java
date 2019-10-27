@@ -17,7 +17,6 @@ public class HTTPServer implements Runnable {
     private static BufferedReader input;
     private static PrintWriter writer;
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
-    private static String data = "";
     private static boolean verbose;
     private static ArrayList<String> fileNames = new ArrayList<String>();
 
@@ -68,7 +67,7 @@ public class HTTPServer implements Runnable {
             quitServer("Unsafe directory chosen, you may only choose folders inside the \"data\" folder.");
         }
         ServerSocket server = new ServerSocket(port);
-        System.out.println("HTTPFS is now live on port " + port);
+        System.out.println("HTTPFS is now live on port " + port + "\n");
 
         while(true){
             HTTPServer httpServer = new HTTPServer(server.accept());
@@ -211,7 +210,7 @@ public class HTTPServer implements Runnable {
                     throw new RuntimeException();
                 }
                 int currChar;
-                data="";
+                String data = "";
                 while(input.ready() && (currChar = input.read()) != -1) {
                     data += (char)currChar;
                 }

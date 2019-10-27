@@ -9,7 +9,7 @@ import java.nio.file.Paths;
 
 import java.util.StringTokenizer;
 
-public class HTTPServer {
+public class HTTPServer implements Runnable {
 
     private static Socket client;
     private static DataOutputStream output;
@@ -18,6 +18,21 @@ public class HTTPServer {
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static String data = "";
     private static boolean verbose;
+
+    public HTTPServer(Socket s){
+        client=s;
+    }
+
+    public synchronized void run(){
+        try {
+            input = new BufferedReader(new InputStreamReader(client.getInputStream()));
+            output = new DataOutputStream(client.getOutputStream());
+            writer =  new PrintWriter(client.getOutputStream());
+            routeRequest(input.readLine());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
     public static void main(String[] args) throws IOException {
         OptionParser optionParser= new OptionParser("vp::d::");
@@ -53,12 +68,9 @@ public class HTTPServer {
         System.out.println("HTTPFS is now live on port " + port);
 
         while(true){
-            client = server.accept();
-            input = new BufferedReader(new InputStreamReader(client.getInputStream()));
-            output = new DataOutputStream(client.getOutputStream());
-            writer =  new PrintWriter(client.getOutputStream());
-            routeRequest(input.readLine());
-            client.close();
+            HTTPServer httpServer = new HTTPServer(server.accept());
+            Thread thread = new Thread(httpServer);
+            thread.start();
         }
     }
     private static void routeRequest(String requestLine) throws IOException{

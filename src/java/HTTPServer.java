@@ -25,6 +25,8 @@ public class HTTPServer {
 
         String safePath = rootPath.toString();
         String userRoot = !optionSet.has("d") ? "" : optionSet.valueOf("d").toString();
+        verbose = optionSet.has("v");
+
         int port = !optionSet.has("p")? 8080 : Integer.parseInt(optionSet.valueOf("p").toString());
 
         if (port < 1024) {
@@ -62,6 +64,7 @@ public class HTTPServer {
             case "GET": processGet(fileName, version); break;
             case "POST": processPost(fileName,version); break;
         }
+        client.close();
     }
 
     private static void quitServer(String message) {

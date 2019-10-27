@@ -26,6 +26,15 @@ public class HTTPServer {
         String safePath = rootPath.toString();
         String userRoot = !optionSet.has("d") ? "" : optionSet.valueOf("d").toString();
         verbose = optionSet.has("v");
+        if(args.length != 0 && args[0].equals("help")) {
+            String helpMessage = "httpfs is a simple file server.\n" +
+                    "usage: httpfs [-v] [-p PORT] [-d PATH-TO-DIR]\n" +
+                    "-v Prints debugging messages.\n" +
+                    "-p Specifies the port number that the server will listen and serve at.\n" +
+                    "Default is 8080.\n" +
+                    "-d Specifies the directory that the server will use to read/write requested files. Default is the current directory when launching the application.";
+            quitServer(helpMessage);
+        }
 
         int port = !optionSet.has("p")? 8080 : Integer.parseInt(optionSet.valueOf("p").toString());
 
@@ -49,6 +58,7 @@ public class HTTPServer {
             output = new DataOutputStream(client.getOutputStream());
             writer =  new PrintWriter(client.getOutputStream());
             routeRequest(input.readLine());
+            client.close();
         }
     }
     private static void routeRequest(String requestLine) throws IOException{
@@ -64,7 +74,7 @@ public class HTTPServer {
             case "GET": processGet(fileName, version); break;
             case "POST": processPost(fileName,version); break;
         }
-        client.close();
+
     }
 
     private static void quitServer(String message) {
@@ -73,31 +83,61 @@ public class HTTPServer {
     }
 
     private static void processGet(String fileName, String version) throws IOException{
+        String headers = getHeaders();
+
         if(!fileName.equals("/")) {
             File file = new File(rootPath + fileName);
-
             try {
                 if(file.getPath().contains("..")) {
                     throw new RuntimeException();
                 }
 
                 byte[] fileBytes = Files.readAllBytes(file.toPath());
+
                 output.writeBytes(version + " 200 OK\r\n");
+                echo(version + " 200 OK\r\n");
+
                 output.writeBytes("Content-Type: text/html\r\n");
+                echo("Content-Type: text/html\r\n");
+
+                output.writeBytes(headers);
+                echo(headers);
+
                 output.writeBytes("Content-Length: " + fileBytes.length + "\r\n");
+                echo("Content-Length: " + fileBytes.length + "\r\n");
+
                 output.writeBytes("Connection: close\r\n");
+                echo("Connection: close\r\n");
+
                 output.writeBytes("\r\n");
+                echo("\r\n");
+
                 output.write(fileBytes);
+                for(String s : Files.readAllLines(file.toPath())) {
+                    echo(s);
+                }
+                echo("\n");
+
                 output.flush();
             }
 
             catch (IOException e){
                 String missingPath = "\"" + file.getName() + "\" doesn't exist, please make sure the file's there or change your root directory.\r\n";
                 output.writeBytes(version + " 404 Not Found\r\n");
-                output.writeBytes("Content-Type: text/tml\r\n");
+                echo(version + " 404 Not Found\r\n");
+
+                output.writeBytes("Content-Type: text/html\r\n");
+                echo("Content-Type: text/html\r\n");
+
                 output.writeBytes("Content-Length: " + missingPath.length() + "\r\n");
+                echo("Content-Length: " + missingPath.length() + "\r\n");
+
                 output.writeBytes("\r\n");
+                echo("\r\n");
+
                 output.writeBytes(missingPath + "\r\n");
+                echo(missingPath + "\r\n");
+
                 output.flush();
             }
             catch (RuntimeException e){
@@ -205,11 +245,38 @@ public class HTTPServer {
 
     private static void sendForbiddenResponse(String version) throws IOException {
         String errorMessage = "Security Error: You can't leave the root directory!\r\n";
+
         output.writeBytes(version + " 403 Forbidden\r\n");
+        echo(version + " 403 Forbidden\r\n");
+
         output.writeBytes("Content-Type: text/tml\r\n");
+        echo("Content-Type: text/html\r\n");
+
         output.writeBytes("Content-Length: " + errorMessage.length() + "\r\n");
+        echo("Content-Length: " + errorMessage.length() + "\r\n");
+
         output.writeBytes("\r\n");
+        echo("\r\n");
+
         output.writeBytes(errorMessage + "\r\n");
+        echo(errorMessage + "\r\n");
+
         output.flush();
+    }
+    private static void echo(String s) {
+        if(verbose) {
+            System.out.print(s);
+        }
+    }
+
+    private static String getHeaders() throws IOException {
+        String headers = "";
+        String currHeader;
+
+        while(input.ready() && !(currHeader = input.readLine()).equals("\r\n") && !currHeader.equals("")) {
+            headers += currHeader + "\r\n";
+        }
+
+        return headers;
     }
 }

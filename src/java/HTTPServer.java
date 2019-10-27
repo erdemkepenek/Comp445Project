@@ -211,7 +211,7 @@ public class HTTPServer implements Runnable {
                     throw new RuntimeException();
                 }
                 int currChar;
-
+                data="";
                 while(input.ready() && (currChar = input.read()) != -1) {
                     data += (char)currChar;
                 }

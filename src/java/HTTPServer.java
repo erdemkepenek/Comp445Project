@@ -18,7 +18,8 @@ public class HTTPServer implements Runnable {
     private static PrintWriter writer;
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static boolean verbose;
-    private static ArrayList<String> fileNames = new ArrayList<String>();
+    private static ArrayList<String> readList = new ArrayList<String>();
+    private static ArrayList<String> writeList = new ArrayList<>();
 
     public HTTPServer(Socket s){
         client=s;
@@ -98,10 +99,10 @@ public class HTTPServer implements Runnable {
 
     private static void processGet(String fileName, String version) throws IOException{
         String headers = getHeaders(false);
-        while(fileNames.contains(fileName)){
+        while(writeList.contains(fileName)){
 
         }
-        fileNames.add(fileName);
+        readList.add(fileName);
         if(!fileName.equals("/")) {
             File file = new File(rootPath + fileName);
             try {
@@ -112,7 +113,8 @@ public class HTTPServer implements Runnable {
                 byte[] fileBytes = Files.readAllBytes(file.toPath());
 
                 output.writeBytes(version + " 200 OK\r\n");
-                output.writeBytes("Content-Type: text/html\r\n");
+                output.writeBytes("Content-Type: " + Files.probeContentType(file.toPath()) +"\r\n");
+                output.writeBytes("Content-Disposition: inline");
                 output.writeBytes(headers);
                 output.writeBytes("Content-Length: " + fileBytes.length + "\r\n");
                 output.writeBytes("Connection: close\r\n");
@@ -125,7 +127,8 @@ public class HTTPServer implements Runnable {
                 }
 
                 echo(version + " 200 OK\r\n" +
-                        "Content-Type: text/html\r\n" +
+                        "Content-Type: " + Files.probeContentType(file.toPath()) +"\r\n" +
+                        "Content-Disposition: inline\r\n" +
                         headers +
                         "Content-Length: " + fileBytes.length + "\r\n" +
                         "Connection: close\r\n" +
@@ -158,7 +161,7 @@ public class HTTPServer implements Runnable {
             catch (RuntimeException e){
                 sendForbiddenResponse(version, headers);
             }
-            fileNames.remove(fileName);
+            readList.remove(fileName);
         }
         else {
             String availableFiles = "The following files are available at the current directory:\r\n";
@@ -200,10 +203,10 @@ public class HTTPServer implements Runnable {
 
     private static void processPost(String fileName, String version) throws IOException{
         String headers = getHeaders(true);
-        while(fileNames.contains(fileName)){
+        while(readList.contains(fileName) || writeList.contains(fileName)){
 
         }
-        fileNames.add(fileName);
+        writeList.add(fileName);
         if(!fileName.equals("/")) {
             try {
                 if(fileName.contains("..")) {
@@ -287,7 +290,7 @@ public class HTTPServer implements Runnable {
                         "\r\n");
                 output.flush();
             }
-            fileNames.remove(fileName);
+            writeList.remove(fileName);
 
         }else {
             String rightPath ="Please Make sure to add path and file name with the host.\r\n";

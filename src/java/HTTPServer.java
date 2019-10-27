@@ -31,6 +31,7 @@ public class HTTPServer implements Runnable {
             output = new DataOutputStream(client.getOutputStream());
             writer =  new PrintWriter(client.getOutputStream());
             routeRequest(input.readLine());
+            client.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -256,8 +257,7 @@ public class HTTPServer implements Runnable {
                         "Content-Length: " + bytes.length + "\r\n" +
                         "Connection: close\r\n" +
                         "\r\n" +
-                        response + "\r\n" +
-                        "\r\n");
+                        response + "\r\n");
 
                 output.flush();
             }

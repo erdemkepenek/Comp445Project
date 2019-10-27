@@ -107,50 +107,47 @@ public class HTTPServer implements Runnable {
                 byte[] fileBytes = Files.readAllBytes(file.toPath());
 
                 output.writeBytes(version + " 200 OK\r\n");
-                echo(version + " 200 OK\r\n");
-
                 output.writeBytes("Content-Type: text/html\r\n");
-                echo("Content-Type: text/html\r\n");
-
                 output.writeBytes(headers);
-                echo(headers);
-
                 output.writeBytes("Content-Length: " + fileBytes.length + "\r\n");
-                echo("Content-Length: " + fileBytes.length + "\r\n");
-
                 output.writeBytes("Connection: close\r\n");
-                echo("Connection: close\r\n");
-
                 output.writeBytes("\r\n");
-                echo("\r\n");
-
                 output.write(fileBytes);
+
+                String echoString = " ";
                 for(String s : Files.readAllLines(file.toPath())) {
-                    echo(s);
+                    echoString += s +"\r\n";
                 }
-                echo("\n");
+
+                echo(version + " 200 OK\r\n" +
+                        "Content-Type: text/html\r\n" +
+                        headers +
+                        "Content-Length: " + fileBytes.length + "\r\n" +
+                        "Connection: close\r\n" +
+                        "\r\n" +
+                        echoString + "\r\n");
 
                 output.flush();
             }
 
             catch (IOException e){
                 String missingPath = "\"" + file.getName() + "\" doesn't exist, please make sure the file's there or change your root directory.\r\n";
+
                 output.writeBytes(version + " 404 Not Found\r\n");
-                echo(version + " 404 Not Found\r\n");
-
                 output.writeBytes("Content-Type: text/html\r\n");
-                echo("Content-Type: text/html\r\n");
-
+                output.writeBytes(headers);
                 output.writeBytes("Content-Length: " + missingPath.length() + "\r\n");
-                echo("Content-Length: " + missingPath.length() + "\r\n");
-
                 output.writeBytes("\r\n");
-                echo("\r\n");
-
                 output.writeBytes(missingPath + "\r\n");
-                echo(missingPath + "\r\n");
 
-                echo("\r\n");
+                echo(version + " 404 Not Found\r\n" +
+                        "Content-Type: text/html\r\n" +
+                        "Content-Length: " + missingPath.length() + "\r\n" +
+                        headers +
+                        "\r\n" +
+                        missingPath + "\r\n" +
+                        "\r\n");
+
                 output.flush();
             }
             catch (RuntimeException e){
@@ -176,24 +173,21 @@ public class HTTPServer implements Runnable {
 
 
             output.writeBytes(version + " 200 OK\r\n");
-            echo(version + " 200 OK\r\n");
-
             output.writeBytes("Content-Type: text/html\r\n");
-            echo("Content-Type: text/html\r\n");
-
             output.writeBytes("Content-Length: " + availableFiles.length() + "\r\n");
-            echo("Content-Length: " + availableFiles.length() + "\r\n");
-
             output.writeBytes("Connection: close\r\n");
-            echo("Connection: close\r\n");
-
             output.writeBytes("\r\n");
-            echo("\r\n");
-
             output.writeBytes(availableFiles + "\r\n");
-            echo(availableFiles + "\r\n");
 
-            echo("\r\n");
+            echo(version + " 200 OK\r\n" +
+                    "Content-Type: text/html\r\n" +
+                    "Content-Length: " + availableFiles.length() + "\r\n" +
+                    headers +
+                    "Connection: close\r\n" +
+                    "\r\n" +
+                    availableFiles + "\r\n" +
+                    "\r\n");
+
             output.flush();
         }
     }
@@ -239,26 +233,23 @@ public class HTTPServer implements Runnable {
 
                 String response = "File Created.\r\n";
                 byte[] bytes = response.getBytes();
-                output.writeBytes(version + " 200 OK\r\n");
-                echo(version + " 200 OK\r\n");
 
+                output.writeBytes(version + " 201 Created\r\n");
                 output.writeBytes(headers);
-                echo(headers);
-
                 output.writeBytes("Content-Type: text/html\r\n");
-                echo("Content-Type: text/html\r\n");
-
                 output.writeBytes("Content-Length: " + bytes.length + "\r\n");
-                echo("Content-Length: " + bytes.length + "\r\n");
-
                 output.writeBytes("Connection: close\r\n");
-                echo("Connection: close\r\n");
-
                 output.writeBytes("\r\n");
-                echo("\r\n");
-
                 output.write(bytes);
-                echo(response + "\r\n");
+
+                echo(version + " 201 Created\r\n" +
+                        headers +
+                        "Content-Type: text/html\r\n" +
+                        "Content-Length: " + bytes.length + "\r\n" +
+                        "Connection: close\r\n" +
+                        "\r\n" +
+                        response + "\r\n" +
+                        "\r\n");
 
                 output.flush();
             }
@@ -271,27 +262,22 @@ public class HTTPServer implements Runnable {
                 String rightFormat = "Please make sure that you send data in the right format.\r\n";
                 byte[] bytes = rightFormat.getBytes();
 
-                output.writeBytes(version + " 404 Not Found\r\n");
-                echo(version + " 404 Not Found\r\n");
-
+                output.writeBytes(version + " 400 Bad Request\r\n");
                 output.writeBytes("Content-Type: text/html\r\n");
-                echo("Content-Type: text/html\r\n");
-
                 output.writeBytes(headers);
-                echo(headers);
-
                 output.writeBytes("Content-Length: " + bytes.length + "\r\n");
-                echo("Content-Length: " + bytes.length + "\r\n");
-
                 output.writeBytes("Connection: close\r\n");
-                echo("Connection: close\r\n");
-
                 output.writeBytes("\r\n");
-                echo("\r\n");
-
                 output.write(bytes);
-                echo(rightFormat + "\r\n");
 
+                echo(version + " 400 Bad Request\r\n" +
+                        "Content-Type: text/html\r\n" +
+                        headers +
+                        "Content-Length: " + bytes.length + "\r\n" +
+                        "Connection: close\r\n" +
+                        "\r\n" +
+                        rightFormat + "\r\n" +
+                        "\r\n");
                 output.flush();
             }
 
@@ -299,26 +285,22 @@ public class HTTPServer implements Runnable {
             String rightPath ="Please Make sure to add path and file name with the host.\r\n";
             byte[] bytes = rightPath.getBytes();
 
-            output.writeBytes(version + " 200 OK\r\n");
-            echo(version + " 200 OK\r\n");
-
+            output.writeBytes(version + " 400 Bad Request\r\n");
             output.writeBytes("Content-Type: text/html\r\n");
-            echo("Content-Type: text/html\r\n");
-
             output.writeBytes(headers);
-            echo(headers);
-
             output.writeBytes("Content-Length: " + bytes.length + "\r\n");
-            echo("Content-Length: " + bytes.length + "\r\n");
-
             output.writeBytes("Connection: close\r\n");
-            echo("Connection: close\r\n");
-
             output.writeBytes("\r\n");
-            echo("\r\n");
-
             output.write(bytes);
-            echo(rightPath + "\r\n");
+
+            echo(version + " 400 Bad Request\r\n" +
+                    "Content-Type: text/html\r\n" +
+                    headers +
+                    "Content-Length: " + bytes.length + "\r\n" +
+                    "Connection: close\r\n" +
+                    "\r\n" +
+                    rightPath + "\r\n" +
+                    "\r\n");
 
             output.flush();
         }
@@ -328,26 +310,23 @@ public class HTTPServer implements Runnable {
         String errorMessage = "You don't have the permissions to access this.\r\n";
 
         output.writeBytes(version + " 403 Forbidden\r\n");
-        echo(version + " 403 Forbidden\r\n");
-
         output.writeBytes("Content-Type: text/html\r\n");
-        echo("Content-Type: text/html\r\n");
-
         output.writeBytes(headers);
-        echo(headers);
-
         output.writeBytes("Content-Length: " + errorMessage.length() + "\r\n");
-        echo("Content-Length: " + errorMessage.length() + "\r\n");
-
         output.writeBytes("\r\n");
-        echo("\r\n");
-
         output.writeBytes(errorMessage + "\r\n");
-        echo(errorMessage + "\r\n");
+
+        echo(version + " 403 Forbidden\r\n" +
+                "Content-Type: text/html\r\n" +
+                headers +
+                "Content-Length: " + errorMessage.length() + "\r\n" +
+                "\r\n" +
+                errorMessage + "\r\n" +
+                "\r\n");
 
         output.flush();
     }
-    private static void echo(String s) {
+    private synchronized static void echo(String s) {
         if(verbose) {
             System.out.print(s);
         }

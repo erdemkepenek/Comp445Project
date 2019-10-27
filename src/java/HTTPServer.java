@@ -120,7 +120,7 @@ public class HTTPServer implements Runnable {
                 output.writeBytes("\r\n");
                 output.write(fileBytes);
 
-                String echoString = " ";
+                String echoString = "";
                 for(String s : Files.readAllLines(file.toPath())) {
                     echoString += s +"\r\n";
                 }

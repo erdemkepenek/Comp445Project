@@ -1,44 +1,79 @@
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
+import sun.nio.ch.SocketAdaptor;
+
 import java.io.*;
 import java.net.*;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+
+import static java.nio.channels.SelectionKey.OP_READ;
 
 public class HTTPClient {
-    private Socket socket;
-    private SSLSocket httpsSocket;
+    private SocketAddress ROUTER_ADDR;
+    private InetSocketAddress SERVER_ADDR;
+    private DatagramSocket socket;
     private PrintWriter printWriter;
     private BufferedReader bufferedReader;
     private boolean verbose = false;
-    private int redirects = 0;
 
-    public void start(String host, int port, String scheme) throws  IOException {
-        if(scheme.equals("https")) {
-            httpsSocket = (SSLSocket) SSLSocketFactory.getDefault().createSocket(InetAddress.getByName(host), port);
-            printWriter = new PrintWriter(httpsSocket.getOutputStream(), true);
-            bufferedReader = new BufferedReader(new InputStreamReader(httpsSocket.getInputStream(), StandardCharsets.UTF_8));
-        }else{
-            socket = new Socket(InetAddress.getByName(host), port);
-            printWriter = new PrintWriter(socket.getOutputStream(), true);
-            bufferedReader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+    public void start() throws  IOException {
+        socket = new DatagramSocket();
+        SERVER_ADDR = new InetSocketAddress("192.168.2.3",8007);
+        ROUTER_ADDR = new InetSocketAddress("192.168.2.10", 3000);
+
+        try(DatagramChannel channel = DatagramChannel.open()){
+            String msg = "Hello World";
+            Packet p = new Packet.Builder()
+                    .setType(0)
+                    .setSequenceNumber(1L)
+                    .setPortNumber(SERVER_ADDR.getPort())
+                    .setPeerAddress(SERVER_ADDR.getAddress())
+                    .setPayload(msg.getBytes())
+                    .create();
+            channel.send(p.toBuffer(), ROUTER_ADDR);
+            System.out.println("Sending \"" +msg + "\" to router at " + ROUTER_ADDR);
+
+            //     timer(channel, p);
+
+            // We just want a single response.
+            ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+            SocketAddress router = channel.receive(buf);
+            buf.flip();
+            Packet resp = Packet.fromBuffer(buf);
+            String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
+            System.out.println(payload);
         }
     }
 
+   /* public void timer(DatagramChannel channel, Packet p ) throws IOException {
+        // Try to receive a packet within timeout.
+        channel.configureBlocking(false);
+        Selector selector = Selector.open();
+        channel.register(selector, OP_READ);
+        selector.select(5000);
+
+        Set<SelectionKey> keys = selector.selectedKeys();
+        if(keys.isEmpty()){
+            channel.send(p.toBuffer(), ROUTER_ADDR);
+            timer(channel, p);
+        }
+        keys.clear();
+        return;
+    }*/
+
     public void end() throws  IOException{
-        if(socket !=null || httpsSocket !=null) {
             if(socket != null){
                 socket.close();
-            }
-            if(httpsSocket != null) {
-                httpsSocket.close();
             }
             printWriter.close();
             bufferedReader.close();
         }
-    }
 
     public void get(URL url, List<String> headers) throws IOException{
         String pathString = url.getPath().equals("")? "/": url.getPath();
@@ -52,8 +87,6 @@ public class HTTPClient {
         printWriter.flush();
 
         bufferedReader.mark(1000);
-        verifyStatusCode(headers, null);
-
         if(!verbose) {
             String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
             while (!responseLine.equals("")) {
@@ -64,38 +97,7 @@ public class HTTPClient {
         bufferedReader.lines().forEach(System.out::println);
     }
 
-    private void verifyStatusCode(List<String> headers, String data) throws IOException {
-        String statusCode = bufferedReader.readLine();
-        if(statusCode.contains("301") || statusCode.contains("302")) {
-            redirect(headers, data);
-        }else{
-            bufferedReader.reset();
-        }
-    }
 
-    private void redirect(List<String> headers, String data) throws IOException {
-        redirects ++;
-        if(redirects > 5) {
-            throw new RuntimeException("The server requested a redirect over 5 times, this might be due to an infinite redirect loop.");
-        }
-        String newLocation = bufferedReader.readLine();
-        while(!newLocation.contains("Location")) {
-            newLocation = bufferedReader.readLine();
-        }
-        String newHost = newLocation.substring(newLocation.indexOf(' ')+1);
-        if(!newHost.contains("http")) {
-            newHost = socket != null? "http://" + socket.getInetAddress().getHostName() + newHost: "https://" + httpsSocket.getInetAddress().getHostName() + newHost;
-        }
-        URL redirectURL = new URL(newHost);
-        end();
-        int port = redirectURL.getPort() != -1? redirectURL.getPort(): redirectURL.getDefaultPort();
-        start(redirectURL.getHost(), port, redirectURL.getProtocol());
-        if(data!=null) {
-            post(redirectURL, headers, data);
-        }else {
-            get(redirectURL, headers);
-        }
-    }
 
 
     public void post(URL url, List<String> headers, String data) throws IOException {
@@ -112,7 +114,6 @@ public class HTTPClient {
         printWriter.flush();
 
         bufferedReader.mark(1000);
-        verifyStatusCode(headers, data);
         if(!verbose) {
             String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
             while (!responseLine.equals("")) {
@@ -132,7 +133,7 @@ public class HTTPClient {
         HTTPClient client = new HTTPClient();
         client.setVerbose(true);
         try {
-            //trying to establish connection to the server
+            /*//trying to establish connection to the server
             ArrayList<String> headers = new ArrayList<>();
             String host = "http://httpbin.org";
             String arguments = "?hello=true";
@@ -143,12 +144,13 @@ public class HTTPClient {
             int postPort = urlPost.getPort() != -1? urlPost.getPort(): urlPost.getDefaultPort();
             headers.add("User-Agent: Concordia-HTTP/1.0");
             System.out.println("TEST GET REQUEST");
-            client.start(urlGet.getHost(), getPort, urlGet.getProtocol());
+            client.start();
             client.get(urlGet, headers);
             client.end();
             System.out.println("\nTEST POST REQUEST");
-            client.start(urlPost.getHost(), postPort, urlPost.getProtocol());
-            client.post(urlPost,headers,data);
+            client.start();
+            client.post(urlPost,headers,data);*/
+            client.start();
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {

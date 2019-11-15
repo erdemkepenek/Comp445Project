@@ -4,13 +4,18 @@ import joptsimple.OptionSet;
 
 import java.io.*;
 import java.net.*;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.DatagramChannel;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
 import java.util.ArrayList;
 import java.util.StringTokenizer;
 
-public class HTTPServer implements Runnable {
+import static java.nio.charset.StandardCharsets.UTF_8;
+
+public class HTTPServer{
 
     private static Socket client;
     private static DataOutputStream output;
@@ -18,24 +23,6 @@ public class HTTPServer implements Runnable {
     private static PrintWriter writer;
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static boolean verbose;
-    private static ArrayList<String> readList = new ArrayList<String>();
-    private static ArrayList<String> writeList = new ArrayList<>();
-
-    public HTTPServer(Socket s){
-        client=s;
-    }
-
-    public synchronized void run(){
-        try {
-            input = new BufferedReader(new InputStreamReader(client.getInputStream()));
-            output = new DataOutputStream(client.getOutputStream());
-            writer =  new PrintWriter(client.getOutputStream());
-            routeRequest(input.readLine());
-            client.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
 
     public static void main(String[] args) throws IOException {
         OptionParser optionParser= new OptionParser("vp::d::");
@@ -57,7 +44,7 @@ public class HTTPServer implements Runnable {
             quitServer(helpMessage);
         }
 
-        int port = !optionSet.has("p")? 8080 : Integer.parseInt(optionSet.valueOf("p").toString());
+        int port = !optionSet.has("p")? 8007 : Integer.parseInt(optionSet.valueOf("p").toString());
 
         if (port < 1024) {
             quitServer("Illegal port used! Valid ports are 1024 and above.");
@@ -70,14 +57,56 @@ public class HTTPServer implements Runnable {
         if(!rootPath.toString().contains(safePath) || rootPath.toString().contains("..")) {
             quitServer("Unsafe directory chosen, you may only choose folders inside the \"data\" folder.");
         }
-        ServerSocket server = new ServerSocket(port);
         System.out.println("HTTPFS is now live on port " + port + "\n");
 
-        while(true){
-            HTTPServer httpServer = new HTTPServer(server.accept());
-            Thread thread = new Thread(httpServer);
-            thread.start();
+        try (DatagramChannel channel = DatagramChannel.open()) {
+            channel.bind(new InetSocketAddress(port));
+            System.out.println("EchoServer is listening at " + channel.getLocalAddress());
+            ByteBuffer buf = ByteBuffer
+                    .allocate(Packet.MAX_LEN)
+                    .order(ByteOrder.BIG_ENDIAN);
+
+            for (; ; ) {
+                buf.clear();
+                SocketAddress router = channel.receive(buf);
+
+                // Parse a packet from the received raw data.
+                buf.flip();
+                Packet packet = Packet.fromBuffer(buf);
+                buf.flip();
+
+                String payload = new String(packet.getPayload(), UTF_8);
+                System.out.println("Packet: " + packet);
+                System.out.println("Payload: " + payload);
+                System.out.println("Router: " + router);
+
+                // Send the response to the router not the client.
+                // The peer address of the packet is the address of the client already.
+                // We can use toBuilder to copy properties of the current packet.
+                // This demonstrate how to create a new packet from an existing packet.
+                Packet resp = packet.toBuilder()
+                        .setPayload(payload.getBytes())
+                        .create();
+                channel.send(resp.toBuffer(), router);
+
+            }
         }
+
+
+
+
+
+        /*while(true){
+            try {
+                input = new BufferedReader(new InputStreamReader(client.getInputStream()));
+                output = new DataOutputStream(client.getOutputStream());
+                writer =  new PrintWriter(client.getOutputStream());
+                routeRequest(input.readLine());
+                client.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }*/
     }
     private static void routeRequest(String requestLine) throws IOException{
         StringTokenizer st = new StringTokenizer(requestLine);
@@ -102,10 +131,7 @@ public class HTTPServer implements Runnable {
 
     private static void processGet(String fileName, String version) throws IOException{
         String headers = getHeaders(false);
-        while(writeList.contains(fileName)){
 
-        }
-        readList.add(fileName);
         if(!fileName.equals("/")) {
             File file = new File(rootPath + fileName);
             try {
@@ -164,7 +190,7 @@ public class HTTPServer implements Runnable {
             catch (RuntimeException e){
                 sendForbiddenResponse(version, headers);
             }
-            readList.remove(fileName);
+
         }
         else {
             String availableFiles = "The following files are available at the current directory:\r\n";
@@ -206,10 +232,6 @@ public class HTTPServer implements Runnable {
 
     private static void processPost(String fileName, String version) throws IOException{
         String headers = getHeaders(true);
-        while(readList.contains(fileName) || writeList.contains(fileName)){
-
-        }
-        writeList.add(fileName);
         if(!fileName.equals("/")) {
             try {
                 if(fileName.contains("..")) {
@@ -293,7 +315,6 @@ public class HTTPServer implements Runnable {
                         "\r\n");
                 output.flush();
             }
-            writeList.remove(fileName);
 
         }else {
             String rightPath ="Please Make sure to add path and file name with the host.\r\n";

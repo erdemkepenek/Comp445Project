@@ -31,7 +31,7 @@ public class httpc {
             }
             URL url = new URL(host);
             int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
-            httpClient.start(url.getHost(), port, url.getProtocol());
+            httpClient.start();
             httpClient.get(url, headers);
         }catch(MalformedURLException e) {
             System.err.println("Invalid URL provided");
@@ -77,7 +77,7 @@ public class httpc {
             }
             URL url = new URL(host);
             int port = url.getPort() != -1? url.getPort(): url.getDefaultPort();
-            httpClient.start(url.getHost(), port, url.getProtocol());
+            httpClient.start();
             httpClient.post(url, headers,dataFile);
         }catch(MalformedURLException e) {
             System.err.println("Invalid URL provided");

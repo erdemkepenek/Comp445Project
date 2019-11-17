@@ -24,8 +24,8 @@ public class HTTPClient {
 
     public void start() throws  IOException {
         socket = new DatagramSocket();
-        SERVER_ADDR = new InetSocketAddress("192.168.2.3",8007);
-        ROUTER_ADDR = new InetSocketAddress("192.168.2.10", 3000);
+        SERVER_ADDR = new InetSocketAddress("localhost",8007);
+        ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
 
         try(DatagramChannel channel = DatagramChannel.open()){
             String msg = "Hello World";
@@ -39,7 +39,7 @@ public class HTTPClient {
             channel.send(p.toBuffer(), ROUTER_ADDR);
             System.out.println("Sending \"" +msg + "\" to router at " + ROUTER_ADDR);
 
-            //     timer(channel, p);
+            timer(channel, p);
 
             // We just want a single response.
             ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
@@ -51,7 +51,7 @@ public class HTTPClient {
         }
     }
 
-   /* public void timer(DatagramChannel channel, Packet p ) throws IOException {
+   public void timer(DatagramChannel channel, Packet p ) throws IOException {
         // Try to receive a packet within timeout.
         channel.configureBlocking(false);
         Selector selector = Selector.open();
@@ -65,7 +65,7 @@ public class HTTPClient {
         }
         keys.clear();
         return;
-    }*/
+    }
 
     public void end() throws  IOException{
             if(socket != null){

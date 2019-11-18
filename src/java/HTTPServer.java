@@ -7,12 +7,16 @@ import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
 import java.util.ArrayList;
+import java.util.Set;
 import java.util.StringTokenizer;
 
+import static java.nio.channels.SelectionKey.OP_READ;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class HTTPServer{
@@ -23,6 +27,9 @@ public class HTTPServer{
     private static PrintWriter writer;
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static boolean verbose;
+    private static boolean handshaken;
+    private static SocketAddress ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
+
 
     public static void main(String[] args) throws IOException {
         OptionParser optionParser= new OptionParser("vp::d::");
@@ -72,29 +79,37 @@ public class HTTPServer{
 
                 // Parse a packet from the received raw data.
                 buf.flip();
+                if(buf.limit() < Packet.MIN_LEN) {
+                    continue;
+                }
                 Packet packet = Packet.fromBuffer(buf);
                 buf.flip();
 
-                String payload = new String(packet.getPayload(), UTF_8);
-                System.out.println("Packet: " + packet);
-                System.out.println("Payload: " + payload);
-                System.out.println("Router: " + router);
+                if(packet.getType() == 1) {
+                    threeWayHandshake(channel, packet, router);
+                }
 
-                // Send the response to the router not the client.
-                // The peer address of the packet is the address of the client already.
-                // We can use toBuilder to copy properties of the current packet.
-                // This demonstrate how to create a new packet from an existing packet.
-                Packet resp = packet.toBuilder()
-                        .setPayload(payload.getBytes())
-                        .create();
-                channel.send(resp.toBuffer(), router);
+                if(packet.getType() == 3) {
+                    System.out.println("Received ACK from " + ROUTER_ADDR + " , data transmission can now start");
+                }
 
+                if(packet.getPayload().length != 0) {
+                    String payload = new String(packet.getPayload(), UTF_8);
+                    System.out.println("Packet: " + packet);
+                    System.out.println("Payload: " + payload);
+                    System.out.println("Router: " + router);
+
+                    // Send the response to the router not the client.
+                    // The peer address of the packet is the address of the client already.
+                    // We can use toBuilder to copy properties of the current packet.
+                    // This demonstrate how to create a new packet from an existing packet.
+                    Packet resp = packet.toBuilder()
+                            .setPayload(payload.getBytes())
+                            .create();
+                    channel.send(resp.toBuffer(), router);
+                }
             }
         }
-
-
-
-
 
         /*while(true){
             try {
@@ -108,6 +123,35 @@ public class HTTPServer{
             }
         }*/
     }
+
+    private static void threeWayHandshake(DatagramChannel channel, Packet packet, SocketAddress router) throws IOException {
+        Packet response = packet.toBuilder()
+                .setType(packet.getType() + 1)
+                .setSequenceNumber(packet.getSequenceNumber() + 1)
+                .create();
+
+        System.out.println("Sending SYN-ACK to:" + ROUTER_ADDR);
+        channel.send(response.toBuffer(), router);
+        timer(channel, response);
+    }
+
+    public static void timer(DatagramChannel channel, Packet p ) throws IOException {
+        // Try to receive a packet within timeout.
+        channel.configureBlocking(false);
+        Selector selector = Selector.open();
+        channel.register(selector, OP_READ);
+        selector.select(5000);
+
+        Set<SelectionKey> keys = selector.selectedKeys();
+        if(keys.isEmpty()){
+            System.out.println("Timed-Out, resending...");
+            channel.send(p.toBuffer(), ROUTER_ADDR);
+            timer(channel, p);
+        }
+        keys.clear();
+        return;
+    }
+
     private static void routeRequest(String requestLine) throws IOException{
         StringTokenizer st = new StringTokenizer(requestLine);
         String method = st.nextToken();

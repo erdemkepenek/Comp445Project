@@ -22,36 +22,72 @@ public class HTTPClient {
     private BufferedReader bufferedReader;
     private boolean verbose = false;
 
+
     public void start() throws  IOException {
         socket = new DatagramSocket();
         SERVER_ADDR = new InetSocketAddress("localhost",8007);
         ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
 
         try(DatagramChannel channel = DatagramChannel.open()){
-            String msg = "Hello World";
-            Packet p = new Packet.Builder()
-                    .setType(0)
-                    .setSequenceNumber(1L)
-                    .setPortNumber(SERVER_ADDR.getPort())
-                    .setPeerAddress(SERVER_ADDR.getAddress())
-                    .setPayload(msg.getBytes())
-                    .create();
-            channel.send(p.toBuffer(), ROUTER_ADDR);
-            System.out.println("Sending \"" +msg + "\" to router at " + ROUTER_ADDR);
+                threeWayHandshake(channel);
+                String msg = "Hello World";
+                Packet p = new Packet.Builder()
+                        .setType(0)
+                        .setSequenceNumber(1L)
+                        .setPortNumber(SERVER_ADDR.getPort())
+                        .setPeerAddress(SERVER_ADDR.getAddress())
+                        .setPayload(msg.getBytes())
+                        .create();
+                channel.send(p.toBuffer(), ROUTER_ADDR);
+                System.out.println("Sending \"" +msg + "\" to router at " + ROUTER_ADDR);
 
-            timer(channel, p);
+                timer(channel, p);
 
-            // We just want a single response.
-            ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
-            SocketAddress router = channel.receive(buf);
-            buf.flip();
-            Packet resp = Packet.fromBuffer(buf);
-            String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
-            System.out.println(payload);
+                // We just want a single response.
+                ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+                SocketAddress router = channel.receive(buf);
+                buf.flip();
+                Packet resp = Packet.fromBuffer(buf);
+                String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
+                System.out.println(payload);
         }
     }
 
-   public void timer(DatagramChannel channel, Packet p ) throws IOException {
+    //data type 0
+    //SYN type 1
+    //SYN ACK type 2
+    // ACK type 3
+
+    private void threeWayHandshake(DatagramChannel channel) throws IOException {
+        Packet p = new Packet.Builder()
+                .setType(1)
+                .setPortNumber(SERVER_ADDR.getPort())
+                .setPeerAddress(SERVER_ADDR.getAddress())
+                .setSequenceNumber(0L)
+                .setPayload("".getBytes())
+                .create();
+        System.out.println("Sending SYN to router at: " + ROUTER_ADDR);
+        channel.send(p.toBuffer(), ROUTER_ADDR);
+        timer(channel, p);
+
+        //receive SYN-ACK
+        ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+        SocketAddress router = channel.receive(buf);
+        buf.flip();
+        Packet resp = Packet.fromBuffer(buf);
+
+        Packet ack = resp.toBuilder()
+                .setType(3)
+                .setSequenceNumber(resp.getSequenceNumber() + 1)
+                .setPayload("Hello World".getBytes())
+                .create();
+        System.out.println("Sending ACK to router at: " + ROUTER_ADDR);
+        channel.send(ack.toBuffer(), ROUTER_ADDR);
+
+        timer(channel, ack);
+    }
+
+    public void timer(DatagramChannel channel, Packet p ) throws IOException {
         // Try to receive a packet within timeout.
         channel.configureBlocking(false);
         Selector selector = Selector.open();
@@ -60,6 +96,7 @@ public class HTTPClient {
 
         Set<SelectionKey> keys = selector.selectedKeys();
         if(keys.isEmpty()){
+            System.out.println("Timed-Out, resending...");
             channel.send(p.toBuffer(), ROUTER_ADDR);
             timer(channel, p);
         }
@@ -78,23 +115,16 @@ public class HTTPClient {
     public void get(URL url, List<String> headers) throws IOException{
         String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
-        printWriter.print("GET "+ pathString + queryString + " HTTP/1.0\r\n");
-        printWriter.print("Host: " + url.getHost() + "\r\n");
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("GET "+ pathString + queryString + " HTTP/1.0\r\n");
+        sb.append("Host: " + url.getHost() + "\r\n");
         for(String header: headers) {
-            printWriter.print(header + "\r\n");
+            sb.append(header + "\r\n");
         }
-        printWriter.print("\r\n");
-        printWriter.flush();
-
-        bufferedReader.mark(1000);
-        if(!verbose) {
-            String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
-            while (!responseLine.equals("")) {
-                responseLine = bufferedReader.readLine();
-            }
-        }
-
-        bufferedReader.lines().forEach(System.out::println);
+        sb.append("\r\n");
+        byte[] payload = sb.toString().getBytes();
+        //TODO make the GET packet
     }
 
 
@@ -103,25 +133,21 @@ public class HTTPClient {
     public void post(URL url, List<String> headers, String data) throws IOException {
         String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
-        printWriter.println("POST "+ pathString + queryString+" HTTP/1.0");
-        printWriter.println("Host: "+ url.getHost());
-        printWriter.println("Content-Length: "+data.length());
-        printWriter.println("Content-Type: application/json");
-        if(headers != null)
-            headers.forEach(printWriter::println);
-        printWriter.println("");
-        printWriter.println(data);
-        printWriter.flush();
-
-        bufferedReader.mark(1000);
-        if(!verbose) {
-            String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
-            while (!responseLine.equals("")) {
-                responseLine = bufferedReader.readLine();
+        StringBuilder sb = new StringBuilder();
+        sb.append("POST "+ pathString + queryString+" HTTP/1.0\r\n");
+        sb.append("Host: "+ url.getHost() +"\r\n");
+        sb.append("Content-Length: "+data.length() +"\r\n");
+        sb.append("Content-Type: application/json\r\n");
+        if(headers != null) {
+            for (String header : headers) {
+                sb.append(header + "\r\n");
             }
         }
+        sb.append("\r\n");
+        sb.append(data);
 
-        bufferedReader.lines().forEach(System.out::println);
+        byte[] payload = sb.toString().getBytes();
+        //TODO make the POST packet
     }
 
     public void setVerbose(boolean verbose) {
@@ -155,9 +181,6 @@ public class HTTPClient {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {
             System.err.println("Connection is not established, because the server may have problems."+e.getMessage());
-        } finally {
-            client.end();
         }
-
     }
 }

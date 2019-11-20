@@ -129,6 +129,7 @@ public class HTTPServer{
                                 .setPayload("Data Received Confirmed".getBytes())
                                 .setSequenceNumber(packet.getSequenceNumber() + 1)
                                 .create();
+                        System.out.println("Sending Ack for Ack to router at " + ROUTER_ADDR);
                         channel.send(resp.toBuffer(), router);
                     }
                 }

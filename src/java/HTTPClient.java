@@ -1,5 +1,3 @@
-import sun.nio.ch.SocketAdaptor;
-
 import java.io.*;
 import java.net.*;
 import java.io.IOException;
@@ -30,26 +28,30 @@ public class HTTPClient {
 
         try(DatagramChannel channel = DatagramChannel.open()){
                 threeWayHandshake(channel);
-                String msg = "Hello World";
-                Packet p = new Packet.Builder()
-                        .setType(0)
-                        .setSequenceNumber(1L)
-                        .setPortNumber(SERVER_ADDR.getPort())
-                        .setPeerAddress(SERVER_ADDR.getAddress())
-                        .setPayload(msg.getBytes())
-                        .create();
-                channel.send(p.toBuffer(), ROUTER_ADDR);
-                System.out.println("Sending \"" +msg + "\" to router at " + ROUTER_ADDR);
 
-                timer(channel, p);
-
+                System.out.println("Received Data from " + ROUTER_ADDR);
                 // We just want a single response.
-                ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
-                SocketAddress router = channel.receive(buf);
-                buf.flip();
-                Packet resp = Packet.fromBuffer(buf);
-                String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
-                System.out.println(payload);
+                ByteBuffer requestResponseBuffer = ByteBuffer.allocate(Packet.MAX_LEN);
+                SocketAddress requestResponseRouter = channel.receive(requestResponseBuffer);
+                requestResponseBuffer.flip();
+                Packet requestResponsePacket = Packet.fromBuffer(requestResponseBuffer);
+                String requestResponsePayload = new String(requestResponsePacket.getPayload(), StandardCharsets.UTF_8);
+                System.out.println(requestResponsePayload);
+                Packet ack = requestResponsePacket.toBuilder()
+                    .setType(3)
+                    .setSequenceNumber(requestResponsePacket.getSequenceNumber() + 1)
+                    .setPayload("Data Received".getBytes())
+                    .create();
+                System.out.println("Sending ACK to router at: " + ROUTER_ADDR);
+                channel.send(ack.toBuffer(), ROUTER_ADDR);
+                timer(channel,ack);
+                System.out.println("Received ACK for ACK from " + ROUTER_ADDR);
+                ByteBuffer bufferAck = ByteBuffer.allocate(Packet.MAX_LEN);
+                SocketAddress routerAck = channel.receive(bufferAck);
+                bufferAck.flip();
+                Packet responseAck = Packet.fromBuffer(bufferAck);
+                String payloadAck = new String(responseAck.getPayload(), StandardCharsets.UTF_8);
+                System.out.println(payloadAck);
         }
     }
 
@@ -57,6 +59,7 @@ public class HTTPClient {
     //SYN type 1
     //SYN ACK type 2
     // ACK type 3
+    // ACK Confirmed type 4
 
     private void threeWayHandshake(DatagramChannel channel) throws IOException {
         Packet p = new Packet.Builder()
@@ -69,19 +72,24 @@ public class HTTPClient {
         System.out.println("Sending SYN to router at: " + ROUTER_ADDR);
         channel.send(p.toBuffer(), ROUTER_ADDR);
         timer(channel, p);
-
+        System.out.println("Received SYN-ACK from " + ROUTER_ADDR);
         //receive SYN-ACK
         ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
         SocketAddress router = channel.receive(buf);
         buf.flip();
         Packet resp = Packet.fromBuffer(buf);
-
+        ArrayList<String> headers = new ArrayList<>();
+        String host = "http://localhost:8007";
+        String path = "/hello.txt";
+        String arguments = "?hello=true";
+        headers.add("User-Agent: Concordia-HTTP/1.0");
+        URL urlGet = new URL(host+path+arguments);
         Packet ack = resp.toBuilder()
-                .setType(3)
+                .setType(0)
                 .setSequenceNumber(resp.getSequenceNumber() + 1)
-                .setPayload("Hello World".getBytes())
+                .setPayload(get(urlGet,headers))
                 .create();
-        System.out.println("Sending ACK to router at: " + ROUTER_ADDR);
+        System.out.println("Sending ACK & Request:\r\n\"" +new String(get(urlGet,headers)) + "\"\r\nto router at " + ROUTER_ADDR);
         channel.send(ack.toBuffer(), ROUTER_ADDR);
 
         timer(channel, ack);
@@ -112,18 +120,18 @@ public class HTTPClient {
             bufferedReader.close();
         }
 
-    public void get(URL url, List<String> headers) throws IOException{
+    public byte[] get(URL url, List<String> headers) throws IOException{
         String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
         StringBuilder sb = new StringBuilder();
 
-        sb.append("GET "+ pathString + queryString + " HTTP/1.0\r\n");
-        sb.append("Host: " + url.getHost() + "\r\n");
+        sb.append("GET "+ pathString +' '+ queryString + " HTTP/1.0\r\n");
+        sb.append("Host: " + url.getHost());
         for(String header: headers) {
-            sb.append(header + "\r\n");
+            sb.append("\r\n"+header);
         }
-        sb.append("\r\n");
         byte[] payload = sb.toString().getBytes();
+        return payload;
         //TODO make the GET packet
     }
 

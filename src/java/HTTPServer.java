@@ -12,7 +12,6 @@ import java.nio.channels.Selector;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
-import java.util.ArrayList;
 import java.util.Set;
 import java.util.StringTokenizer;
 
@@ -86,11 +85,15 @@ public class HTTPServer{
                 buf.flip();
 
                 if(packet.getType() == 1) {
+                    System.out.println("Received SYN from " + ROUTER_ADDR);
                     threeWayHandshake(channel, packet, router);
                 }
 
-                if(packet.getType() == 3) {
-                    System.out.println("Received ACK from " + ROUTER_ADDR + " , data transmission can now start");
+                if(packet.getType() == 0) {
+                    System.out.println("Received ACK & Request from " + ROUTER_ADDR);
+                }
+                if(packet.getType() == 3){
+                    System.out.println("Received ACK from " + ROUTER_ADDR);
                 }
 
                 if(packet.getPayload().length != 0) {
@@ -98,15 +101,36 @@ public class HTTPServer{
                     System.out.println("Packet: " + packet);
                     System.out.println("Payload: " + payload);
                     System.out.println("Router: " + router);
+                    System.out.println("Type: " + packet.getType());
 
                     // Send the response to the router not the client.
                     // The peer address of the packet is the address of the client already.
                     // We can use toBuilder to copy properties of the current packet.
                     // This demonstrate how to create a new packet from an existing packet.
-                    Packet resp = packet.toBuilder()
-                            .setPayload(payload.getBytes())
-                            .create();
-                    channel.send(resp.toBuffer(), router);
+                    if(packet.getType() == 0) {
+                        String[] arrOfStr = payload.split("\r\n", 4);
+                        StringTokenizer st = new StringTokenizer(arrOfStr[0]);
+                        String method = st.nextToken();
+                        String fileName = st.nextToken();
+                        String argument = st.nextToken();
+                        String version = st.nextToken();
+                        Packet resp = packet.toBuilder()
+                                .setType(0)
+                                .setSequenceNumber(packet.getSequenceNumber() + 1)
+                                .setPayload(routeRequest(method,fileName,argument,version))
+                                .create();
+                        channel.send(resp.toBuffer(), router);
+                        System.out.println("Sending Data: \"" +new String(routeRequest(method,fileName,argument,version)) + "\"\r\nto router at " + ROUTER_ADDR);
+                        timer(channel,resp);
+                    }
+                    if(packet.getType()==3) {
+                        Packet resp = packet.toBuilder()
+                                .setType(4)
+                                .setPayload("Data Received Confirmed".getBytes())
+                                .setSequenceNumber(packet.getSequenceNumber() + 1)
+                                .create();
+                        channel.send(resp.toBuffer(), router);
+                    }
                 }
             }
         }
@@ -152,20 +176,19 @@ public class HTTPServer{
         return;
     }
 
-    private static void routeRequest(String requestLine) throws IOException{
-        StringTokenizer st = new StringTokenizer(requestLine);
-        String method = st.nextToken();
-        String fileName = st.nextToken();
-        String version = st.nextToken();
+    private static byte[] routeRequest(String method, String fileName,String argument, String version) throws IOException{
 
         if (fileName.equals("/exit")) {
             quitServer("Server terminated successfully!");
         }
         switch (method){
-            case "GET": processGet(fileName, version); break;
-            case "POST": processPost(fileName,version); break;
+            case "GET":
+                return processGet(fileName, version);
+            case "POST":
+                return processPost(fileName,version);
         }
 
+        return new byte[0];
     }
 
     private static void quitServer(String message) {
@@ -173,28 +196,36 @@ public class HTTPServer{
         System.exit(0);
     }
 
-    private static void processGet(String fileName, String version) throws IOException{
-        String headers = getHeaders(false);
+    private static byte[] processGet(String fileName, String version) throws IOException{
+        String headers = "";
 
         if(!fileName.equals("/")) {
             File file = new File(rootPath + fileName);
-            try {
+            /*try {*/
                 if(file.getPath().contains("..") || (file.exists() &&!file.canRead())) {
                     throw new RuntimeException();
                 }
 
                 byte[] fileBytes = Files.readAllBytes(file.toPath());
-
-                output.writeBytes(version + " 200 OK\r\n");
+                StringBuilder sb = new StringBuilder();
+                sb.append(version + " 200 OK\r\n");
+                sb.append("Content-Type: " + Files.probeContentType(file.toPath()) +"\r\n");
+                sb.append("Content-Disposition: inline\r\n");
+                sb.append(headers);
+                sb.append("Content-Length: " + fileBytes.length + "\r\n");
+                sb.append("Data: "+new String(fileBytes));
+                byte[] payload = sb.toString().getBytes();
+                return payload;
+                /*output.writeBytes(version + " 200 OK\r\n");
                 output.writeBytes("Content-Type: " + Files.probeContentType(file.toPath()) +"\r\n");
                 output.writeBytes("Content-Disposition: inline");
                 output.writeBytes(headers);
                 output.writeBytes("Content-Length: " + fileBytes.length + "\r\n");
                 output.writeBytes("Connection: close\r\n");
                 output.writeBytes("\r\n");
-                output.write(fileBytes);
+                output.write(fileBytes);*/
 
-                String echoString = "";
+                /*String echoString = "";
                 for(String s : Files.readAllLines(file.toPath())) {
                     echoString += s +"\r\n";
                 }
@@ -208,8 +239,8 @@ public class HTTPServer{
                         "\r\n" +
                         echoString + "\r\n");
 
-                output.flush();
-            }
+                output.flush();*/
+            /*}
 
             catch (IOException e){
                 String missingPath = "\"" + file.getName() + "\" doesn't exist, please make sure the file's there or change your root directory.\r\n";
@@ -233,10 +264,11 @@ public class HTTPServer{
             }
             catch (RuntimeException e){
                 sendForbiddenResponse(version, headers);
-            }
+            }*/
 
         }
-        else {
+        return null;
+        /*else {
             String availableFiles = "The following files are available at the current directory:\r\n";
 
             File[] currentFolderFiles = new File(rootPath.toString()).listFiles();
@@ -271,10 +303,10 @@ public class HTTPServer{
                     "\r\n");
 
             output.flush();
-        }
+        }*/
     }
 
-    private static void processPost(String fileName, String version) throws IOException{
+    private static byte[] processPost(String fileName, String version) throws IOException{
         String headers = getHeaders(true);
         if(!fileName.equals("/")) {
             try {
@@ -383,6 +415,7 @@ public class HTTPServer{
 
             output.flush();
         }
+        return new byte[0];
     }
 
     private static void sendForbiddenResponse(String version, String headers) throws IOException {

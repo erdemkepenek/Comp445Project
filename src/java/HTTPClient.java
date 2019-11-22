@@ -133,9 +133,6 @@ public class HTTPClient {
         return true;
     }
 
-    public boolean isAcked(int seqNum) {
-        return segmentResponses[seqNum];
-    }
 
 
 

@@ -1,6 +1,8 @@
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -9,14 +11,14 @@ import java.util.Set;
 import static java.nio.channels.SelectionKey.OP_READ;
 
 public class PacketThread extends Thread {
-    DatagramChannel channel;
-    Packet packet;
-    boolean[] ackFlags;
-    long packetNumber;
-    int lowestSegment;
-    int maxSegment;
-    InetSocketAddress SERVER_ADDR = new InetSocketAddress("localhost",8007);
-    SocketAddress ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
+    private DatagramChannel channel;
+    private Packet packet;
+    private boolean[] ackFlags;
+    private long packetNumber;
+    private int lowestSegment;
+    private int maxSegment;
+    private InetSocketAddress SERVER_ADDR = new InetSocketAddress("localhost",8007);
+    private SocketAddress ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
 
     public PacketThread(boolean client, DatagramChannel channel, Packet packet)
     {
@@ -41,24 +43,62 @@ public class PacketThread extends Thread {
 
     @Override
     public void run() {
-        super.run();
+        try{
+            while(this.packetNumber > maxSegment && this.packetNumber != ackFlags.length - 1){
+                yield();
+            }
+            channel.send(packet.toBuffer(), ROUTER_ADDR);
+            timer(channel, packet);
+            notifyAll();
+        }catch(IOException e){
+
+        }
     }
 
     public void timer(DatagramChannel channel, Packet p ) throws IOException {
-        // Try to receive a packet within timeout.
-        channel.configureBlocking(false);
-        Selector selector = Selector.open();
-        channel.register(selector, OP_READ);
-        selector.select(5000);
+        ByteBuffer buffer = ByteBuffer
+                .allocate(Packet.MAX_LEN)
+                .order(ByteOrder.BIG_ENDIAN);
 
-        Set<SelectionKey> keys = selector.selectedKeys();
-        if(keys.isEmpty()){
-            System.out.println("Timed-Out, resending...");
-            channel.send(p.toBuffer(), ROUTER_ADDR);
-            timer(channel, p);
+        while(!this.isAcked()) {
+            buffer.clear();
+            channel.configureBlocking(false);
+            Selector selector = Selector.open();
+            channel.register(selector, OP_READ);
+            selector.select(5000);
+
+            Set<SelectionKey> keys = selector.selectedKeys();
+            if (keys.isEmpty()) {
+                System.out.println("Timed-Out, resending...");
+                channel.send(p.toBuffer(), ROUTER_ADDR);
+            } else {
+                keys.clear();
+                channel.receive(buffer);
+                buffer.flip();
+                Packet received = Packet.fromBuffer(buffer);
+                buffer.flip();
+                synchronized (this){
+                  this.ackFlags[(int) this.packetNumber] = true;
+                  updateWindow();
+                }
+            }
         }
-        keys.clear();
-        return;
+    }
+
+    public boolean isAcked() {
+        return ackFlags[(int) this.packetNumber];
+    }
+
+    public void updateWindow() {
+        if(ackFlags[lowestSegment]){
+            if(lowestSegment < maxSegment) {
+                lowestSegment++;
+            }
+            if(maxSegment < ackFlags.length)
+            {
+                maxSegment++;
+            }
+        }
     }
 
 }

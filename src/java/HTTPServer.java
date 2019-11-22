@@ -12,6 +12,7 @@ import java.nio.channels.Selector;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
+import java.util.ArrayList;
 import java.util.Set;
 import java.util.StringTokenizer;
 
@@ -20,13 +21,14 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class HTTPServer{
 
-    private static Socket client;
-    private static DataOutputStream output;
     private static BufferedReader input;
-    private static PrintWriter writer;
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static boolean verbose;
-    private static boolean handshaken;
+    static int currentType;
+    static int lowestSegment;
+    static int maxSegment;
+    public static boolean[] segmentResponses;
+    private ArrayList<Packet> receiveBuffer;
     private static SocketAddress ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
 
 
@@ -202,7 +204,7 @@ public class HTTPServer{
 
         if(!fileName.equals("/")) {
             File file = new File(rootPath + fileName);
-            /*try {*/
+            try {
                 if(file.getPath().contains("..") || (file.exists() &&!file.canRead())) {
                     throw new RuntimeException();
                 }
@@ -216,17 +218,8 @@ public class HTTPServer{
                 sb.append("Content-Length: " + fileBytes.length + "\r\n");
                 sb.append("Data: "+new String(fileBytes));
                 byte[] payload = sb.toString().getBytes();
-                return payload;
-                /*output.writeBytes(version + " 200 OK\r\n");
-                output.writeBytes("Content-Type: " + Files.probeContentType(file.toPath()) +"\r\n");
-                output.writeBytes("Content-Disposition: inline");
-                output.writeBytes(headers);
-                output.writeBytes("Content-Length: " + fileBytes.length + "\r\n");
-                output.writeBytes("Connection: close\r\n");
-                output.writeBytes("\r\n");
-                output.write(fileBytes);*/
 
-                /*String echoString = "";
+                String echoString = "";
                 for(String s : Files.readAllLines(file.toPath())) {
                     echoString += s +"\r\n";
                 }
@@ -240,18 +233,19 @@ public class HTTPServer{
                         "\r\n" +
                         echoString + "\r\n");
 
-                output.flush();*/
-            /*}
+                return payload;
+
+            }
 
             catch (IOException e){
                 String missingPath = "\"" + file.getName() + "\" doesn't exist, please make sure the file's there or change your root directory.\r\n";
-
-                output.writeBytes(version + " 404 Not Found\r\n");
-                output.writeBytes("Content-Type: text/html\r\n");
-                output.writeBytes(headers);
-                output.writeBytes("Content-Length: " + missingPath.length() + "\r\n");
-                output.writeBytes("\r\n");
-                output.writeBytes(missingPath + "\r\n");
+                StringBuilder sb = new StringBuilder();
+                sb.append(version + " 404 Not Found\r\n");
+                sb.append("Content-Type: text/html\r\n");
+                sb.append(headers);
+                sb.append("Content-Length: " + missingPath.length() + "\r\n");
+                sb.append("\r\n");
+                sb.append(missingPath + "\r\n");
 
                 echo(version + " 404 Not Found\r\n" +
                         "Content-Type: text/html\r\n" +
@@ -261,17 +255,17 @@ public class HTTPServer{
                         missingPath + "\r\n" +
                         "\r\n");
 
-                output.flush();
+                return sb.toString().getBytes();
             }
             catch (RuntimeException e){
-                sendForbiddenResponse(version, headers);
-            }*/
+                return sendForbiddenResponse(version, headers);
+            }
 
         }
-        return null;
-        /*else {
-            String availableFiles = "The following files are available at the current directory:\r\n";
 
+        else {
+            String availableFiles = "The following files are available at the current directory:\r\n";
+            StringBuilder sb = new StringBuilder();
             File[] currentFolderFiles = new File(rootPath.toString()).listFiles();
 
             if(currentFolderFiles == null || currentFolderFiles.length == 0) {
@@ -287,12 +281,12 @@ public class HTTPServer{
             }
 
 
-            output.writeBytes(version + " 200 OK\r\n");
-            output.writeBytes("Content-Type: text/html\r\n");
-            output.writeBytes("Content-Length: " + availableFiles.length() + "\r\n");
-            output.writeBytes("Connection: close\r\n");
-            output.writeBytes("\r\n");
-            output.writeBytes(availableFiles + "\r\n");
+            sb.append(version + " 200 OK\r\n");
+            sb.append("Content-Type: text/html\r\n");
+            sb.append("Content-Length: " + availableFiles.length() + "\r\n");
+            sb.append("Connection: close\r\n");
+            sb.append("\r\n");
+            sb.append(availableFiles + "\r\n");
 
             echo(version + " 200 OK\r\n" +
                     "Content-Type: text/html\r\n" +
@@ -303,8 +297,8 @@ public class HTTPServer{
                     availableFiles + "\r\n" +
                     "\r\n");
 
-            output.flush();
-        }*/
+            return sb.toString().getBytes();
+        }
     }
 
     private static byte[] processPost(String fileName, String version) throws IOException{
@@ -344,90 +338,92 @@ public class HTTPServer{
                 bufferedWriter.close();
                 fileWriter.close();
 
-                String response = "File Created.\r\n";
-                byte[] bytes = response.getBytes();
+                StringBuilder sb = new StringBuilder();
 
-                output.writeBytes(version + " 201 Created\r\n");
-                output.writeBytes(headers);
-                output.writeBytes("Content-Type: text/html\r\n");
-                output.writeBytes("Content-Length: " + bytes.length + "\r\n");
-                output.writeBytes("Connection: close\r\n");
-                output.writeBytes("\r\n");
-                output.write(bytes);
+                String response = "File Created.\r\n";
+
+                sb.append(version + " 201 Created\r\n");
+                sb.append(headers);
+                sb.append("Content-Type: text/html\r\n");
+                sb.append("Content-Length: " + response.length() + "\r\n");
+                sb.append("Connection: close\r\n");
+                sb.append("\r\n");
+                sb.append(response);
 
                 echo(version + " 201 Created\r\n" +
                         headers +
                         "Content-Type: text/html\r\n" +
-                        "Content-Length: " + bytes.length + "\r\n" +
+                        "Content-Length: " + response.length() + "\r\n" +
                         "Connection: close\r\n" +
                         "\r\n" +
                         response + "\r\n");
 
-                output.flush();
+                return sb.toString().getBytes();
             }
 
             catch (RuntimeException e){
-                sendForbiddenResponse(version, headers);
+                return sendForbiddenResponse(version, headers);
             }
 
             catch (IOException e){
+                StringBuilder sb = new StringBuilder();
                 String rightFormat = "Please make sure that you send data in the right format.\r\n";
-                byte[] bytes = rightFormat.getBytes();
 
-                output.writeBytes(version + " 400 Bad Request\r\n");
-                output.writeBytes("Content-Type: text/html\r\n");
-                output.writeBytes(headers);
-                output.writeBytes("Content-Length: " + bytes.length + "\r\n");
-                output.writeBytes("Connection: close\r\n");
-                output.writeBytes("\r\n");
-                output.write(bytes);
+                sb.append(version + " 400 Bad Request\r\n");
+                sb.append("Content-Type: text/html\r\n");
+                sb.append(headers);
+                sb.append("Content-Length: " + rightFormat.length() + "\r\n");
+                sb.append("Connection: close\r\n");
+                sb.append("\r\n");
+                sb.append(rightFormat);
 
                 echo(version + " 400 Bad Request\r\n" +
                         "Content-Type: text/html\r\n" +
                         headers +
-                        "Content-Length: " + bytes.length + "\r\n" +
+                        "Content-Length: " + rightFormat.length() + "\r\n" +
                         "Connection: close\r\n" +
                         "\r\n" +
                         rightFormat + "\r\n" +
                         "\r\n");
-                output.flush();
+
+                return sb.toString().getBytes();
             }
 
         }else {
             String rightPath ="Please Make sure to add path and file name with the host.\r\n";
-            byte[] bytes = rightPath.getBytes();
+            StringBuilder sb = new StringBuilder();
 
-            output.writeBytes(version + " 400 Bad Request\r\n");
-            output.writeBytes("Content-Type: text/html\r\n");
-            output.writeBytes(headers);
-            output.writeBytes("Content-Length: " + bytes.length + "\r\n");
-            output.writeBytes("Connection: close\r\n");
-            output.writeBytes("\r\n");
-            output.write(bytes);
+            sb.append(version + " 400 Bad Request\r\n");
+            sb.append("Content-Type: text/html\r\n");
+            sb.append(headers);
+            sb.append("Content-Length: " + rightPath.length() + "\r\n");
+            sb.append("Connection: close\r\n");
+            sb.append("\r\n");
+            sb.append(rightPath);
 
             echo(version + " 400 Bad Request\r\n" +
                     "Content-Type: text/html\r\n" +
                     headers +
-                    "Content-Length: " + bytes.length + "\r\n" +
+                    "Content-Length: " + rightPath.length() + "\r\n" +
                     "Connection: close\r\n" +
                     "\r\n" +
                     rightPath + "\r\n" +
                     "\r\n");
 
-            output.flush();
+            return sb.toString().getBytes();
         }
-        return new byte[0];
     }
 
-    private static void sendForbiddenResponse(String version, String headers) throws IOException {
+    private static byte[] sendForbiddenResponse(String version, String headers) throws IOException {
         String errorMessage = "You don't have the permissions to access this.\r\n";
+        StringBuilder sb = new StringBuilder();
 
-        output.writeBytes(version + " 403 Forbidden\r\n");
-        output.writeBytes("Content-Type: text/html\r\n");
-        output.writeBytes(headers);
-        output.writeBytes("Content-Length: " + errorMessage.length() + "\r\n");
-        output.writeBytes("\r\n");
-        output.writeBytes(errorMessage + "\r\n");
+        sb.append(version + " 403 Forbidden\r\n");
+        sb.append("Content-Type: text/html\r\n");
+        sb.append(headers);
+        sb.append("Content-Length: " + errorMessage.length() + "\r\n");
+        sb.append("\r\n");
+        sb.append(errorMessage + "\r\n");
 
         echo(version + " 403 Forbidden\r\n" +
                 "Content-Type: text/html\r\n" +
@@ -437,7 +433,7 @@ public class HTTPServer{
                 errorMessage + "\r\n" +
                 "\r\n");
 
-        output.flush();
+        return sb.toString().getBytes();
     }
     private synchronized static void echo(String s) {
         if(verbose) {

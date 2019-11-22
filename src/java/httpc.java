@@ -35,8 +35,6 @@ public class httpc {
             httpClient.get(url, headers);
         }catch(MalformedURLException e) {
             System.err.println("Invalid URL provided");
-        }finally {
-            httpClient.end();
         }
     }
 
@@ -81,10 +79,7 @@ public class httpc {
             httpClient.post(url, headers,dataFile);
         }catch(MalformedURLException e) {
             System.err.println("Invalid URL provided");
-        }finally {
-            httpClient.end();
         }
-
     }
 
     public static void main(String[] args) throws IOException{

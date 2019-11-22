@@ -13,21 +13,23 @@ import java.util.Set;
 import static java.nio.channels.SelectionKey.OP_READ;
 
 public class HTTPClient {
-    private SocketAddress ROUTER_ADDR;
-    private InetSocketAddress SERVER_ADDR;
+    static SocketAddress ROUTER_ADDR;
+    static InetSocketAddress SERVER_ADDR;
     private DatagramSocket socket;
-    private PrintWriter printWriter;
-    private BufferedReader bufferedReader;
+    static int currentType;
+    static int lowestSegment;
+    static int maxSegment;
+    static boolean[] segmentResponses;
+    private ArrayList<Packet> receiveBuffer;
     private boolean verbose = false;
 
-
-    public void start() throws  IOException {
+    public void start(URL url, List<String> headers, String method) throws  IOException {
         socket = new DatagramSocket();
         SERVER_ADDR = new InetSocketAddress("localhost",8007);
         ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
 
-        try(DatagramChannel channel = DatagramChannel.open()){
-                threeWayHandshake(channel);
+        try(DatagramChannel channel = DatagramChannel.open()) {
+                threeWayHandshake(channel, url, headers, method);
 
                 System.out.println("Received Data from " + ROUTER_ADDR);
                 // We just want a single response.
@@ -61,7 +63,7 @@ public class HTTPClient {
     // ACK type 3
     // ACK Confirmed type 4
 
-    private void threeWayHandshake(DatagramChannel channel) throws IOException {
+    private void threeWayHandshake(DatagramChannel channel, URL url, List<String> headers, String method) throws IOException {
         Packet p = new Packet.Builder()
                 .setType(1)
                 .setPortNumber(SERVER_ADDR.getPort())
@@ -78,18 +80,13 @@ public class HTTPClient {
         SocketAddress router = channel.receive(buf);
         buf.flip();
         Packet resp = Packet.fromBuffer(buf);
-        ArrayList<String> headers = new ArrayList<>();
-        String host = "http://localhost:8007";
-        String path = "/hello.txt";
-        String arguments = "?hello=true";
-        headers.add("User-Agent: Concordia-HTTP/1.0");
-        URL urlGet = new URL(host+path+arguments);
+
         Packet ack = resp.toBuilder()
                 .setType(0)
                 .setSequenceNumber(resp.getSequenceNumber() + 1)
-                .setPayload(get(urlGet,headers))
+                .setPayload(get(url,headers))
                 .create();
-        System.out.println("Sending ACK & Request:\r\n\"" +new String(get(urlGet,headers)) + "\"\r\nto router at " + ROUTER_ADDR);
+        System.out.println("Sending ACK & Request:\r\n\"" +new String(get(url,headers)) + "\"\r\nto router at " + ROUTER_ADDR);
         channel.send(ack.toBuffer(), ROUTER_ADDR);
 
         timer(channel, ack);
@@ -112,14 +109,6 @@ public class HTTPClient {
         return;
     }
 
-    public void end() throws  IOException{
-            if(socket != null){
-                socket.close();
-            }
-            printWriter.close();
-            bufferedReader.close();
-        }
-
     public byte[] get(URL url, List<String> headers) throws IOException{
         String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
@@ -130,11 +119,23 @@ public class HTTPClient {
         for(String header: headers) {
             sb.append("\r\n"+header);
         }
-        byte[] payload = sb.toString().getBytes();
-        return payload;
-        //TODO make the GET packet
+
+        return sb.toString().getBytes();
     }
 
+    public boolean isFinished(){
+        for(Boolean seg : segmentResponses)
+        {
+            if(!seg){
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean isAcked(int seqNum) {
+        return segmentResponses[seqNum];
+    }
 
 
 
@@ -155,7 +156,6 @@ public class HTTPClient {
         sb.append(data);
 
         byte[] payload = sb.toString().getBytes();
-        //TODO make the POST packet
     }
 
     public void setVerbose(boolean verbose) {
@@ -167,24 +167,13 @@ public class HTTPClient {
         HTTPClient client = new HTTPClient();
         client.setVerbose(true);
         try {
-            /*//trying to establish connection to the server
             ArrayList<String> headers = new ArrayList<>();
-            String host = "http://httpbin.org";
+            String host = "http://localhost:8007";
+            String path = "/hello.txt";
             String arguments = "?hello=true";
-            String data = "{\"Assignment\":\"1\"}";
-            URL urlGet = new URL(host+"/get"+arguments);
-            URL urlPost = new URL(host+"/post"+arguments);
-            int getPort = urlGet.getPort() != -1? urlGet.getPort(): urlGet.getDefaultPort();
-            int postPort = urlPost.getPort() != -1? urlPost.getPort(): urlPost.getDefaultPort();
             headers.add("User-Agent: Concordia-HTTP/1.0");
-            System.out.println("TEST GET REQUEST");
-            client.start();
-            client.get(urlGet, headers);
-            client.end();
-            System.out.println("\nTEST POST REQUEST");
-            client.start();
-            client.post(urlPost,headers,data);*/
-            client.start();
+            URL urlGet = new URL(host+path+arguments);
+            client.start(urlGet, headers, "GET");
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {

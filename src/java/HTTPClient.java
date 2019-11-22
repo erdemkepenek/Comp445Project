@@ -17,10 +17,10 @@ public class HTTPClient {
     static InetSocketAddress SERVER_ADDR;
     private DatagramSocket socket;
     static int currentType;
-    static int lowestSegment;
-    static int maxSegment;
-    static boolean[] segmentResponses;
-    private ArrayList<Packet> receiveBuffer;
+    static int lowestSegment = 0;
+    static int maxSegment = 0;
+    static boolean[] segmentResponses = {false};
+    static ArrayList<Packet> receiveBuffer = new ArrayList<Packet>();
     private boolean verbose = false;
 
     public void start(URL url, List<String> headers, String method) throws  IOException {
@@ -41,18 +41,18 @@ public class HTTPClient {
                 System.out.println(requestResponsePayload);
                 Packet ack = requestResponsePacket.toBuilder()
                     .setType(3)
-                    .setSequenceNumber(requestResponsePacket.getSequenceNumber() + 1)
+                    .setSequenceNumber(0)
                     .setPayload("Data Received".getBytes())
                     .create();
                 System.out.println("Sending ACK to router at: " + ROUTER_ADDR);
-                channel.send(ack.toBuffer(), ROUTER_ADDR);
-                timer(channel,ack);
+                PacketThread pT = new PacketThread(true, channel, ack);
+                pT.run();
+                while(!isFinished()) {
+
+                }
+                Packet received = receiveBuffer.get(0);
                 System.out.println("Received ACK for ACK from " + ROUTER_ADDR);
-                ByteBuffer bufferAck = ByteBuffer.allocate(Packet.MAX_LEN);
-                SocketAddress routerAck = channel.receive(bufferAck);
-                bufferAck.flip();
-                Packet responseAck = Packet.fromBuffer(bufferAck);
-                String payloadAck = new String(responseAck.getPayload(), StandardCharsets.UTF_8);
+                String payloadAck = new String(received.getPayload(), StandardCharsets.UTF_8);
                 System.out.println(payloadAck);
         }
     }

@@ -6,6 +6,7 @@ import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
+import java.util.ArrayList;
 import java.util.Set;
 
 import static java.nio.channels.SelectionKey.OP_READ;
@@ -17,6 +18,8 @@ public class PacketThread extends Thread {
     private long packetNumber;
     private int lowestSegment;
     private int maxSegment;
+    private ArrayList<Packet> receivedBuffer;
+
     private InetSocketAddress SERVER_ADDR = new InetSocketAddress("localhost",8007);
     private SocketAddress ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
 
@@ -29,6 +32,7 @@ public class PacketThread extends Thread {
             this.packet = packet;
             this.lowestSegment = HTTPClient.lowestSegment;
             this.maxSegment = HTTPClient.maxSegment;
+            this. receivedBuffer = HTTPClient.receiveBuffer;
         }
         else{
             this.channel = channel;
@@ -37,6 +41,7 @@ public class PacketThread extends Thread {
             this.packet = packet;
             this.lowestSegment = HTTPServer.lowestSegment;
             this.maxSegment = HTTPServer.maxSegment;
+            this.receivedBuffer = HTTPServer.receiveBuffer;
         }
 
     }
@@ -44,12 +49,11 @@ public class PacketThread extends Thread {
     @Override
     public void run() {
         try{
-            while(this.packetNumber > maxSegment && this.packetNumber != ackFlags.length - 1){
+            while(this.packetNumber > maxSegment){
                 yield();
             }
             channel.send(packet.toBuffer(), ROUTER_ADDR);
             timer(channel, packet);
-            notifyAll();
         }catch(IOException e){
 
         }
@@ -78,8 +82,12 @@ public class PacketThread extends Thread {
                 Packet received = Packet.fromBuffer(buffer);
                 buffer.flip();
                 synchronized (this){
-                  this.ackFlags[(int) this.packetNumber] = true;
-                  updateWindow();
+                    if(!this.ackFlags[(int) this.packetNumber]){
+                        this.receivedBuffer.add(received);
+                        this.ackFlags[(int) this.packetNumber] = true;
+                        updateWindow();
+                        notifyAll();
+                    }
                 }
             }
         }

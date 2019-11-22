@@ -28,7 +28,7 @@ public class HTTPServer{
     static int lowestSegment;
     static int maxSegment;
     public static boolean[] segmentResponses;
-    private ArrayList<Packet> receiveBuffer;
+    public static ArrayList<Packet> receiveBuffer = new ArrayList<Packet>();
     private static SocketAddress ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
 
 

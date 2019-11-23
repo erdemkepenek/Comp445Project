@@ -31,6 +31,7 @@ public class HTTPClient {
         ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
 
         try(DatagramChannel channel = DatagramChannel.open()) {
+                channel.bind(new InetSocketAddress(41830));
                 threeWayHandshake(channel, url, headers, method);
                 System.out.println("Received Data from " + ROUTER_ADDR);
 
@@ -81,7 +82,6 @@ public class HTTPClient {
         }
         segmentResponses = new boolean[]{false};
 
-        System.out.println("Received SYN-ACK from " + ROUTER_ADDR);
         Packet packet = null;
         //receive SYN-ACK
         while(packet == null) {
@@ -96,6 +96,7 @@ public class HTTPClient {
                 packet = resp;
             }
         }
+        System.out.println("Received SYN-ACK from " + ROUTER_ADDR);
         currentType = 0;
         Packet ack = packet.toBuilder()
                 .setType(3)

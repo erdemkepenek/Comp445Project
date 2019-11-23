@@ -111,14 +111,17 @@ public class HTTPServer{
                     byte[] request = routeRequest(method, fileName, argument, version);
                     Packet[] packets = getPacketList(request);
                     segmentResponses = new boolean[packets.length];
+                    lowestSegment = 0;
+                    maxSegment = segmentResponses.length / 2;
                     Arrays.fill(segmentResponses, false);
                     for(Packet p : packets){
                         PacketThread pT = new PacketThread(false, channel, p);
                         pT.start();
+                    }
                         while(!isFinished()) {
                             yield();
                         }
-                    }
+
                 }
                     /*if(packet.getType()==3) {
                         Packet resp = packet.toBuilder()
@@ -138,7 +141,7 @@ public class HTTPServer{
                 .setType(2)
                 .setSequenceNumber(0)
                 .create();
-
+        currentType = 3;
         System.out.println("Sending SYN-ACK to:" + ROUTER_ADDR);
         new PacketThread(false, channel, response).start();
         while(!isFinished()){
@@ -448,7 +451,7 @@ public class HTTPServer{
             byte[] packetPayload = packets[i].getPayload();
             for(int j = 0; j < 1013; j++) {
                 if(byteIndex > totalSize - 1) {
-                    packets[i] = packets[i].toBuilder().setPayload(Arrays.copyOf(packetPayload, j + 1)).create();
+                    packets[i] = packets[i].toBuilder().setPayload(Arrays.copyOf(packetPayload, j)).create();
                     return packets;
                 }
                 packetPayload[j] = payload[byteIndex];

@@ -74,13 +74,13 @@ public class PacketThread extends Thread {
 
             Set<SelectionKey> keys = selector.selectedKeys();
             if (keys.isEmpty()) {
-                if(isAcked()) {
-                    return;
-                }
                 System.out.println("Timed-Out, resending...");
                 channel.send(p.toBuffer(), ROUTER_ADDR);
             } else {
                 keys.clear();
+                if(this.isAcked()) {
+                    return;
+                }
                 channel.receive(buffer);
                 buffer.flip();
                 if(buffer.limit() < Packet.MIN_LEN) {

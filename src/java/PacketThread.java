@@ -6,7 +6,6 @@ import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
-import java.util.ArrayList;
 import java.util.Set;
 
 import static java.nio.channels.SelectionKey.OP_READ;
@@ -75,6 +74,9 @@ public class PacketThread extends Thread {
 
             Set<SelectionKey> keys = selector.selectedKeys();
             if (keys.isEmpty()) {
+                if(isAcked()) {
+                    return;
+                }
                 System.out.println("Timed-Out, resending...");
                 channel.send(p.toBuffer(), ROUTER_ADDR);
             } else {

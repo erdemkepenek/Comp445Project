@@ -12,10 +12,7 @@ import java.nio.channels.Selector;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-import java.util.StringTokenizer;
+import java.util.*;
 
 import static java.lang.Thread.yield;
 import static java.nio.channels.SelectionKey.OP_READ;
@@ -33,6 +30,7 @@ public class HTTPServer{
     private static List<String> headers;
     public static ArrayList<Packet> receiveBuffer = new ArrayList<Packet>();
     private static SocketAddress ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
+    private static InetSocketAddress CLIENT_ADDR = new InetSocketAddress("localhost", 41830);
 
 
     public static void main(String[] args) throws IOException {
@@ -89,7 +87,7 @@ public class HTTPServer{
                 Packet packet = Packet.fromBuffer(buf);
                 buf.flip();
 
-                if(packet.getType() != currentType) {
+                if(packet.getType() != currentType || packet.getSequenceNumber() < lowestSegment || packet.getSequenceNumber() > maxSegment) {
                     continue;
                 }
 
@@ -103,32 +101,25 @@ public class HTTPServer{
                 if(packet.getType() == 3) {
                     System.out.println("Received ACK & Request from " + ROUTER_ADDR);
                     currentType = 0;
-                    segmentResponses = new boolean[]{false};
-                }
-
-                if(packet.getPayload().length != 0) {
-                    String payload = new String(packet.getPayload(), UTF_8);
-
-
-                    String[] arrOfStr = payload.split("\r\n", 4);
+                    String payloadString = new String(packet.getPayload(),UTF_8);
+                    String[] arrOfStr = payloadString.split("\r\n", 4);
                     StringTokenizer st = new StringTokenizer(arrOfStr[0]);
                     String method = st.nextToken();
                     String fileName = st.nextToken();
                     String argument = st.nextToken();
                     String version = st.nextToken();
-                    Packet resp = packet.toBuilder()
-                            .setType(0)
-                            .setSequenceNumber(0)
-                            .setPayload(routeRequest(method,fileName,argument,version))
-                            .create();
-                    System.out.println("Sending Data: \"" +new String(routeRequest(method,fileName,argument,version)) + "\"\r\nto router at " + ROUTER_ADDR);
-                    PacketThread pT = new PacketThread(false, channel, resp);
-                    pT.start();
-                    while(!isFinished()) {
-                        yield();
+                    byte[] request = routeRequest(method, fileName, argument, version);
+                    Packet[] packets = getPacketList(request);
+                    segmentResponses = new boolean[packets.length];
+                    Arrays.fill(segmentResponses, false);
+                    for(Packet p : packets){
+                        PacketThread pT = new PacketThread(false, channel, p);
+                        pT.start();
+                        while(!isFinished()) {
+                            yield();
+                        }
                     }
-
-
+                }
                     /*if(packet.getType()==3) {
                         Packet resp = packet.toBuilder()
                                 .setType(4)
@@ -141,8 +132,6 @@ public class HTTPServer{
                 }
             }
         }
-
-    }
 
     private static void threeWayHandshake(DatagramChannel channel, Packet packet, SocketAddress router) throws IOException {
         Packet response = packet.toBuilder()
@@ -203,16 +192,16 @@ public class HTTPServer{
                 if(file.getPath().contains("..") || (file.exists() &&!file.canRead())) {
                     throw new RuntimeException();
                 }
-
+//88 -> \r\n is length
                 byte[] fileBytes = Files.readAllBytes(file.toPath());
                 StringBuilder sb = new StringBuilder();
                 sb.append(version + " 200 OK\r\n");
                 sb.append("Content-Type: " + Files.probeContentType(file.toPath()) +"\r\n");
                 sb.append("Content-Disposition: inline\r\n");
                 sb.append(headers);
-                sb.append("Content-Length: " + fileBytes.length + "\r\n");
+                sb.append("Content-Length: \r\n");
                 sb.append("Data: "+new String(fileBytes));
-                byte[] payload = sb.toString().getBytes();
+                sb.insert(88, (sb.length() + String.valueOf(sb.length()).length()));
 
                 String echoString = "";
                 for(String s : Files.readAllLines(file.toPath())) {
@@ -228,7 +217,7 @@ public class HTTPServer{
                         "\r\n" +
                         echoString + "\r\n");
 
-                return payload;
+                return sb.toString().getBytes();
 
             }
 
@@ -444,6 +433,29 @@ public class HTTPServer{
             }
         }
         return true;
+    }
+
+    private static Packet[] getPacketList(byte[] payload) {
+        double totalSize = payload.length;
+        double numOfPackets = Math.ceil(totalSize/1013);
+        Packet[] packets = new Packet[(int)numOfPackets];
+        for(int i = 0; i < numOfPackets; i++) {
+            Packet p = new Packet.Builder().setType(0).setSequenceNumber(i).setPeerAddress(CLIENT_ADDR.getAddress()).setPortNumber(CLIENT_ADDR.getPort()).setPayload(new byte[1013]).create();
+            packets[i] = p;
+        }
+        int byteIndex = 0;
+        for(int i = 0 ; i < packets.length; i++) {
+            byte[] packetPayload = packets[i].getPayload();
+            for(int j = 0; j < 1013; j++) {
+                if(byteIndex > totalSize - 1) {
+                    packets[i] = packets[i].toBuilder().setPayload(Arrays.copyOf(packetPayload, j + 1)).create();
+                    return packets;
+                }
+                packetPayload[j] = payload[byteIndex];
+                byteIndex++;
+            }
+        }
+        return packets;
     }
 
     private static String getHeaders(boolean post) throws IOException {

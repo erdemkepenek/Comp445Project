@@ -2,6 +2,7 @@ import java.io.*;
 import java.net.*;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -10,13 +11,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+import static java.lang.Thread.yield;
 import static java.nio.channels.SelectionKey.OP_READ;
 
 public class HTTPClient {
     static SocketAddress ROUTER_ADDR;
     static InetSocketAddress SERVER_ADDR;
     private DatagramSocket socket;
-    static int currentType;
+    static int currentType = 2;
     static int lowestSegment = 0;
     static int maxSegment = 0;
     static boolean[] segmentResponses = {false};
@@ -30,30 +32,31 @@ public class HTTPClient {
 
         try(DatagramChannel channel = DatagramChannel.open()) {
                 threeWayHandshake(channel, url, headers, method);
-
                 System.out.println("Received Data from " + ROUTER_ADDR);
-                // We just want a single response.
-                ByteBuffer requestResponseBuffer = ByteBuffer.allocate(Packet.MAX_LEN);
-                SocketAddress requestResponseRouter = channel.receive(requestResponseBuffer);
-                requestResponseBuffer.flip();
-                Packet requestResponsePacket = Packet.fromBuffer(requestResponseBuffer);
-                String requestResponsePayload = new String(requestResponsePacket.getPayload(), StandardCharsets.UTF_8);
-                System.out.println(requestResponsePayload);
-                Packet ack = requestResponsePacket.toBuilder()
-                    .setType(3)
-                    .setSequenceNumber(0)
-                    .setPayload("Data Received".getBytes())
-                    .create();
-                System.out.println("Sending ACK to router at: " + ROUTER_ADDR);
-                PacketThread pT = new PacketThread(true, channel, ack);
-                pT.run();
-                while(!isFinished()) {
 
+                while(!isFinished()) {
+                    // We just want a single response.
+                    Packet packet = null;
+                    //receive SYN-ACK
+                    while (packet == null) {
+                        ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+                        channel.receive(buf);
+                        buf.flip();
+                        if (buf.limit() < Packet.MIN_LEN) {
+                            continue;
+                        }
+                        Packet resp = Packet.fromBuffer(buf);
+                        if (resp.getType() == currentType) {
+                            packet = resp;
+                        }
+                    }
+                    segmentResponses[(int)packet.getSequenceNumber()] = true;
+                    receiveBuffer.add(packet);
+                    Packet ack = packet.toBuilder().setPayload(new byte[0]).create();
+                    channel.send(ack.toBuffer(), ROUTER_ADDR);
                 }
-                Packet received = receiveBuffer.get(0);
-                System.out.println("Received ACK for ACK from " + ROUTER_ADDR);
-                String payloadAck = new String(received.getPayload(), StandardCharsets.UTF_8);
-                System.out.println(payloadAck);
+                String requestResponsePayload = new String(receiveBuffer.get(0).getPayload(), StandardCharsets.UTF_8);
+                System.out.println(requestResponsePayload);
         }
     }
 
@@ -72,42 +75,68 @@ public class HTTPClient {
                 .setPayload("".getBytes())
                 .create();
         System.out.println("Sending SYN to router at: " + ROUTER_ADDR);
-        channel.send(p.toBuffer(), ROUTER_ADDR);
-        timer(channel, p);
-        System.out.println("Received SYN-ACK from " + ROUTER_ADDR);
-        //receive SYN-ACK
-        ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
-        SocketAddress router = channel.receive(buf);
-        buf.flip();
-        Packet resp = Packet.fromBuffer(buf);
+        new PacketThread(true, channel, p).start();
+        while (!isFinished()) {
+            yield();
+        }
+        segmentResponses = new boolean[]{false};
 
-        Packet ack = resp.toBuilder()
-                .setType(0)
-                .setSequenceNumber(resp.getSequenceNumber() + 1)
+        System.out.println("Received SYN-ACK from " + ROUTER_ADDR);
+        Packet packet = null;
+        //receive SYN-ACK
+        while(packet == null) {
+            ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+            channel.receive(buf);
+            buf.flip();
+            if(buf.limit() < Packet.MIN_LEN) {
+                continue;
+            }
+            Packet resp = Packet.fromBuffer(buf);
+            if(resp.getType() == currentType){
+                packet = resp;
+            }
+        }
+        currentType = 0;
+        Packet ack = packet.toBuilder()
+                .setType(3)
+                .setSequenceNumber(0)
                 .setPayload(get(url,headers))
                 .create();
         System.out.println("Sending ACK & Request:\r\n\"" +new String(get(url,headers)) + "\"\r\nto router at " + ROUTER_ADDR);
-        channel.send(ack.toBuffer(), ROUTER_ADDR);
-
-        timer(channel, ack);
+        new PacketThread(true, channel, ack).start();
+        while (!isFinished()) {
+            yield();
+        }
+        segmentResponses = new boolean[]{false};
     }
 
     public void timer(DatagramChannel channel, Packet p ) throws IOException {
-        // Try to receive a packet within timeout.
-        channel.configureBlocking(false);
-        Selector selector = Selector.open();
-        channel.register(selector, OP_READ);
-        selector.select(5000);
+        ByteBuffer buffer = ByteBuffer
+                .allocate(Packet.MAX_LEN)
+                .order(ByteOrder.BIG_ENDIAN);
 
-        Set<SelectionKey> keys = selector.selectedKeys();
-        if(keys.isEmpty()){
-            System.out.println("Timed-Out, resending...");
-            channel.send(p.toBuffer(), ROUTER_ADDR);
-            timer(channel, p);
+            buffer.clear();
+            channel.configureBlocking(false);
+            Selector selector = Selector.open();
+            channel.register(selector, OP_READ);
+            selector.select(5000);
+
+            Set<SelectionKey> keys = selector.selectedKeys();
+            if (keys.isEmpty()) {
+                System.out.println("Timed-Out, resending...");
+                channel.send(p.toBuffer(), ROUTER_ADDR);
+            } else {
+                keys.clear();
+                channel.receive(buffer);
+                buffer.flip();
+                Packet received = Packet.fromBuffer(buffer);
+                buffer.flip();
+                if(received.getType() != currentType){
+                    channel.send(p.toBuffer(), ROUTER_ADDR);
+                    timer(channel, p);
+                }
+            }
         }
-        keys.clear();
-        return;
-    }
 
     public byte[] get(URL url, List<String> headers) throws IOException{
         String pathString = url.getPath().equals("")? "/": url.getPath();

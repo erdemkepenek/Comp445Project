@@ -18,7 +18,7 @@ public class PacketThread extends Thread {
     private long packetNumber;
     private int lowestSegment;
     private int maxSegment;
-    private ArrayList<Packet> receivedBuffer;
+    private int currentType;
 
     private InetSocketAddress SERVER_ADDR = new InetSocketAddress("localhost",8007);
     private SocketAddress ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
@@ -32,7 +32,7 @@ public class PacketThread extends Thread {
             this.packet = packet;
             this.lowestSegment = HTTPClient.lowestSegment;
             this.maxSegment = HTTPClient.maxSegment;
-            this. receivedBuffer = HTTPClient.receiveBuffer;
+            this.currentType = HTTPClient.currentType;
         }
         else{
             this.channel = channel;
@@ -41,7 +41,7 @@ public class PacketThread extends Thread {
             this.packet = packet;
             this.lowestSegment = HTTPServer.lowestSegment;
             this.maxSegment = HTTPServer.maxSegment;
-            this.receivedBuffer = HTTPServer.receiveBuffer;
+            this.currentType = HTTPServer.currentType;
         }
 
     }
@@ -49,11 +49,13 @@ public class PacketThread extends Thread {
     @Override
     public void run() {
         try{
-            while(this.packetNumber > maxSegment){
+            while(this.packetNumber > maxSegment) {
                 yield();
             }
+            if(!isAcked()) {
             channel.send(packet.toBuffer(), ROUTER_ADDR);
             timer(channel, packet);
+            }
         }catch(IOException e){
 
         }
@@ -79,11 +81,16 @@ public class PacketThread extends Thread {
                 keys.clear();
                 channel.receive(buffer);
                 buffer.flip();
+                if(buffer.limit() < Packet.MIN_LEN) {
+                    continue;
+                }
                 Packet received = Packet.fromBuffer(buffer);
+                if(received.getType() != currentType){
+                    continue;
+                }
                 buffer.flip();
                 synchronized (this){
                     if(!this.ackFlags[(int) this.packetNumber]){
-                        this.receivedBuffer.add(received);
                         this.ackFlags[(int) this.packetNumber] = true;
                         updateWindow();
                         notifyAll();

@@ -13,9 +13,11 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.StringTokenizer;
 
+import static java.lang.Thread.yield;
 import static java.nio.channels.SelectionKey.OP_READ;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -24,10 +26,11 @@ public class HTTPServer{
     private static BufferedReader input;
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static boolean verbose;
-    static int currentType;
-    static int lowestSegment;
-    static int maxSegment;
-    public static boolean[] segmentResponses;
+    static int currentType = 1;
+    static int lowestSegment = 0;
+    static int maxSegment = 0;
+    public static boolean[] segmentResponses = {false};
+    private static List<String> headers;
     public static ArrayList<Packet> receiveBuffer = new ArrayList<Packet>();
     private static SocketAddress ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
 
@@ -86,80 +89,72 @@ public class HTTPServer{
                 Packet packet = Packet.fromBuffer(buf);
                 buf.flip();
 
+                if(packet.getType() != currentType) {
+                    continue;
+                }
+
                 if(packet.getType() == 1) {
                     System.out.println("Received SYN from " + ROUTER_ADDR);
+                    currentType = 3;
+                    segmentResponses = new boolean[]{false};
                     threeWayHandshake(channel, packet, router);
                 }
 
-                if(packet.getType() == 0) {
+                if(packet.getType() == 3) {
                     System.out.println("Received ACK & Request from " + ROUTER_ADDR);
-                }
-                if(packet.getType() == 3){
-                    System.out.println("Received ACK from " + ROUTER_ADDR);
+                    currentType = 0;
+                    segmentResponses = new boolean[]{false};
                 }
 
                 if(packet.getPayload().length != 0) {
                     String payload = new String(packet.getPayload(), UTF_8);
-                    System.out.println("Packet: " + packet);
-                    System.out.println("Payload: " + payload);
-                    System.out.println("Router: " + router);
-                    System.out.println("Type: " + packet.getType());
 
-                    // Send the response to the router not the client.
-                    // The peer address of the packet is the address of the client already.
-                    // We can use toBuilder to copy properties of the current packet.
-                    // This demonstrate how to create a new packet from an existing packet.
-                    if(packet.getType() == 0) {
-                        String[] arrOfStr = payload.split("\r\n", 4);
-                        StringTokenizer st = new StringTokenizer(arrOfStr[0]);
-                        String method = st.nextToken();
-                        String fileName = st.nextToken();
-                        String argument = st.nextToken();
-                        String version = st.nextToken();
-                        Packet resp = packet.toBuilder()
-                                .setType(0)
-                                .setSequenceNumber(packet.getSequenceNumber() + 1)
-                                .setPayload(routeRequest(method,fileName,argument,version))
-                                .create();
-                        channel.send(resp.toBuffer(), router);
-                        System.out.println("Sending Data: \"" +new String(routeRequest(method,fileName,argument,version)) + "\"\r\nto router at " + ROUTER_ADDR);
-                        timer(channel,resp);
+
+                    String[] arrOfStr = payload.split("\r\n", 4);
+                    StringTokenizer st = new StringTokenizer(arrOfStr[0]);
+                    String method = st.nextToken();
+                    String fileName = st.nextToken();
+                    String argument = st.nextToken();
+                    String version = st.nextToken();
+                    Packet resp = packet.toBuilder()
+                            .setType(0)
+                            .setSequenceNumber(0)
+                            .setPayload(routeRequest(method,fileName,argument,version))
+                            .create();
+                    System.out.println("Sending Data: \"" +new String(routeRequest(method,fileName,argument,version)) + "\"\r\nto router at " + ROUTER_ADDR);
+                    PacketThread pT = new PacketThread(false, channel, resp);
+                    pT.start();
+                    while(!isFinished()) {
+                        yield();
                     }
-                    if(packet.getType()==3) {
+
+
+                    /*if(packet.getType()==3) {
                         Packet resp = packet.toBuilder()
                                 .setType(4)
                                 .setPayload("Data Received Confirmed".getBytes())
-                                .setSequenceNumber(packet.getSequenceNumber() + 1)
+                                .setSequenceNumber(0)
                                 .create();
                         System.out.println("Sending Ack for Ack to router at " + ROUTER_ADDR);
                         channel.send(resp.toBuffer(), router);
-                    }
+                    }*/
                 }
             }
         }
 
-        /*while(true){
-            try {
-                input = new BufferedReader(new InputStreamReader(client.getInputStream()));
-                output = new DataOutputStream(client.getOutputStream());
-                writer =  new PrintWriter(client.getOutputStream());
-                routeRequest(input.readLine());
-                client.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }*/
     }
 
     private static void threeWayHandshake(DatagramChannel channel, Packet packet, SocketAddress router) throws IOException {
         Packet response = packet.toBuilder()
-                .setType(packet.getType() + 1)
-                .setSequenceNumber(packet.getSequenceNumber() + 1)
+                .setType(2)
+                .setSequenceNumber(0)
                 .create();
 
         System.out.println("Sending SYN-ACK to:" + ROUTER_ADDR);
-        channel.send(response.toBuffer(), router);
-        timer(channel, response);
+        new PacketThread(false, channel, response).start();
+        while(!isFinished()){
+            yield();
+        }
     }
 
     public static void timer(DatagramChannel channel, Packet p ) throws IOException {
@@ -439,6 +434,16 @@ public class HTTPServer{
         if(verbose) {
             System.out.print(s);
         }
+    }
+
+    public static boolean isFinished(){
+        for(Boolean seg : segmentResponses)
+        {
+            if(!seg){
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String getHeaders(boolean post) throws IOException {

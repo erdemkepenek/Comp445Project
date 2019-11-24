@@ -7,20 +7,18 @@ import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import static java.lang.Thread.yield;
 import static java.nio.channels.SelectionKey.OP_READ;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class HTTPClient {
     static SocketAddress ROUTER_ADDR;
     static InetSocketAddress SERVER_ADDR;
     private DatagramSocket socket;
     static int currentType = 2;
-    static int lowestSegment = 0;
-    static int maxSegment = 0;
+    static int[] window = {0, 0};
     static boolean[] segmentResponses = {false};
     static ArrayList<Packet> receiveBuffer = new ArrayList<Packet>();
     private boolean verbose = false;
@@ -36,9 +34,8 @@ public class HTTPClient {
                 System.out.println("Received Data from " + ROUTER_ADDR);
 
                 while(!isFinished()) {
-                    // We just want a single response.
                     Packet packet = null;
-                    //receive SYN-ACK
+
                     while (packet == null) {
                         ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
                         channel.receive(buf);
@@ -47,18 +44,66 @@ public class HTTPClient {
                             continue;
                         }
                         Packet resp = Packet.fromBuffer(buf);
-                        if (resp.getType() == currentType) {
+                        if (resp.getType() == currentType && withinWindow(resp)) {
                             packet = resp;
+                            if(resp.getSequenceNumber() == 0){
+                                setupWindow(resp.getPayload());
+                            }
                         }
                     }
+
+                    if(!segmentResponses[(int)packet.getSequenceNumber()]) {
+                        receiveBuffer.add(packet);
+                    }
                     segmentResponses[(int)packet.getSequenceNumber()] = true;
-                    receiveBuffer.add(packet);
+                    updateWindow();
                     Packet ack = packet.toBuilder().setPayload(new byte[0]).create();
                     channel.send(ack.toBuffer(), ROUTER_ADDR);
                 }
-                String requestResponsePayload = new String(receiveBuffer.get(0).getPayload(), StandardCharsets.UTF_8);
-                System.out.println(requestResponsePayload);
+                System.out.println(assemblePayload());
         }
+    }
+
+    public void updateWindow() {
+        if(segmentResponses[window[0]]){
+            if(window[0] < window[1]) {
+                window[0] = window[0] + 1;
+            }
+            if(window[1] < segmentResponses.length - 1)
+            {
+                window[1] = window[1] + 1;
+            }
+        }
+    }
+
+    private String assemblePayload() {
+        Collections.sort(receiveBuffer);
+        String payloadString = "";
+        for(int i = 0; i < receiveBuffer.size(); i++) {
+            payloadString += new String(receiveBuffer.get(i).getPayload(), UTF_8);
+        }
+        return payloadString;
+    }
+
+    private boolean withinWindow(Packet resp) {
+        return resp.getSequenceNumber() <= window[1] && resp.getSequenceNumber() >= window[0];
+    }
+
+    private void setupWindow(byte[] payload) {
+        String payloadString = new String(payload, UTF_8);
+        String[] payloadStringArr = payloadString.split("\r\n", 10);
+        String contentLengthHeader = "";
+        for(String s : payloadStringArr) {
+            if(s.contains("Content-Length")){
+                contentLengthHeader = s;
+                break;
+            }
+        }
+        float totalLength = Float.parseFloat(contentLengthHeader.substring(contentLengthHeader.indexOf(' '), contentLengthHeader.length()));
+        double numOfPackets = Math.ceil(totalLength/1013);
+        segmentResponses = new boolean[(int)numOfPackets];
+        window[1] = segmentResponses.length / 2;
+        Arrays.fill(segmentResponses, false);
     }
 
     //data type 0
@@ -163,6 +208,13 @@ public class HTTPClient {
         return true;
     }
 
+    public boolean isAcked(int seqNum) {
+        if(seqNum >= segmentResponses.length){
+            return false;
+        }
+        return segmentResponses[seqNum];
+    }
+
 
 
 
@@ -196,7 +248,7 @@ public class HTTPClient {
         try {
             ArrayList<String> headers = new ArrayList<>();
             String host = "http://localhost:8007";
-            String path = "/hello.txt";
+            String path = "/large.txt";
             String arguments = "?hello=true";
             headers.add("User-Agent: Concordia-HTTP/1.0");
             URL urlGet = new URL(host+path+arguments);

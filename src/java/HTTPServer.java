@@ -24,8 +24,7 @@ public class HTTPServer{
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static boolean verbose;
     static int currentType = 1;
-    static int lowestSegment = 0;
-    static int maxSegment = 0;
+    static int[] window = {0,0};
     public static boolean[] segmentResponses = {false};
     private static List<String> headers;
     public static ArrayList<Packet> receiveBuffer = new ArrayList<Packet>();
@@ -87,7 +86,7 @@ public class HTTPServer{
                 Packet packet = Packet.fromBuffer(buf);
                 buf.flip();
 
-                if(packet.getType() != currentType || packet.getSequenceNumber() < lowestSegment || packet.getSequenceNumber() > maxSegment) {
+                if(packet.getType() != currentType || packet.getSequenceNumber() < window[0] || packet.getSequenceNumber() > window[1]) {
                     continue;
                 }
 
@@ -111,27 +110,17 @@ public class HTTPServer{
                     byte[] request = routeRequest(method, fileName, argument, version);
                     Packet[] packets = getPacketList(request);
                     segmentResponses = new boolean[packets.length];
-                    lowestSegment = 0;
-                    maxSegment = segmentResponses.length / 2;
+                    window[0] = 0;
+                    window[1] = segmentResponses.length / 2;
                     Arrays.fill(segmentResponses, false);
-                    for(Packet p : packets){
+                    for(Packet p : packets) {
                         PacketThread pT = new PacketThread(false, channel, p);
                         pT.start();
                     }
                         while(!isFinished()) {
                             yield();
                         }
-
-                }
-                    /*if(packet.getType()==3) {
-                        Packet resp = packet.toBuilder()
-                                .setType(4)
-                                .setPayload("Data Received Confirmed".getBytes())
-                                .setSequenceNumber(0)
-                                .create();
-                        System.out.println("Sending Ack for Ack to router at " + ROUTER_ADDR);
-                        channel.send(resp.toBuffer(), router);
-                    }*/
+                    }
                 }
             }
         }
@@ -195,16 +184,16 @@ public class HTTPServer{
                 if(file.getPath().contains("..") || (file.exists() &&!file.canRead())) {
                     throw new RuntimeException();
                 }
-//88 -> \r\n is length
+
                 byte[] fileBytes = Files.readAllBytes(file.toPath());
                 StringBuilder sb = new StringBuilder();
                 sb.append(version + " 200 OK\r\n");
                 sb.append("Content-Type: " + Files.probeContentType(file.toPath()) +"\r\n");
                 sb.append("Content-Disposition: inline\r\n");
-                sb.append(headers);
                 sb.append("Content-Length: \r\n");
+                sb.append(headers);
                 sb.append("Data: "+new String(fileBytes));
-                sb.insert(88, (sb.length() + String.valueOf(sb.length()).length()));
+                sb.insert(sb.toString().indexOf("Content-Length") + "Content-Length: ".length(), (sb.length() + String.valueOf(sb.length()).length()));
 
                 String echoString = "";
                 for(String s : Files.readAllLines(file.toPath())) {
@@ -214,8 +203,8 @@ public class HTTPServer{
                 echo(version + " 200 OK\r\n" +
                         "Content-Type: " + Files.probeContentType(file.toPath()) +"\r\n" +
                         "Content-Disposition: inline\r\n" +
-                        headers +
                         "Content-Length: " + fileBytes.length + "\r\n" +
+                        headers +
                         "Connection: close\r\n" +
                         "\r\n" +
                         echoString + "\r\n");
@@ -229,8 +218,8 @@ public class HTTPServer{
                 StringBuilder sb = new StringBuilder();
                 sb.append(version + " 404 Not Found\r\n");
                 sb.append("Content-Type: text/html\r\n");
-                sb.append(headers);
                 sb.append("Content-Length: " + missingPath.length() + "\r\n");
+                sb.append(headers);
                 sb.append("\r\n");
                 sb.append(missingPath + "\r\n");
 
@@ -330,17 +319,17 @@ public class HTTPServer{
                 String response = "File Created.\r\n";
 
                 sb.append(version + " 201 Created\r\n");
-                sb.append(headers);
                 sb.append("Content-Type: text/html\r\n");
                 sb.append("Content-Length: " + response.length() + "\r\n");
+                sb.append(headers);
                 sb.append("Connection: close\r\n");
                 sb.append("\r\n");
                 sb.append(response);
 
                 echo(version + " 201 Created\r\n" +
-                        headers +
                         "Content-Type: text/html\r\n" +
                         "Content-Length: " + response.length() + "\r\n" +
+                        headers +
                         "Connection: close\r\n" +
                         "\r\n" +
                         response + "\r\n");
@@ -358,16 +347,16 @@ public class HTTPServer{
 
                 sb.append(version + " 400 Bad Request\r\n");
                 sb.append("Content-Type: text/html\r\n");
-                sb.append(headers);
                 sb.append("Content-Length: " + rightFormat.length() + "\r\n");
+                sb.append(headers);
                 sb.append("Connection: close\r\n");
                 sb.append("\r\n");
                 sb.append(rightFormat);
 
                 echo(version + " 400 Bad Request\r\n" +
                         "Content-Type: text/html\r\n" +
-                        headers +
                         "Content-Length: " + rightFormat.length() + "\r\n" +
+                        headers +
                         "Connection: close\r\n" +
                         "\r\n" +
                         rightFormat + "\r\n" +
@@ -382,16 +371,16 @@ public class HTTPServer{
 
             sb.append(version + " 400 Bad Request\r\n");
             sb.append("Content-Type: text/html\r\n");
-            sb.append(headers);
             sb.append("Content-Length: " + rightPath.length() + "\r\n");
+            sb.append(headers);
             sb.append("Connection: close\r\n");
             sb.append("\r\n");
             sb.append(rightPath);
 
             echo(version + " 400 Bad Request\r\n" +
                     "Content-Type: text/html\r\n" +
-                    headers +
                     "Content-Length: " + rightPath.length() + "\r\n" +
+                    headers +
                     "Connection: close\r\n" +
                     "\r\n" +
                     rightPath + "\r\n" +
@@ -407,15 +396,15 @@ public class HTTPServer{
 
         sb.append(version + " 403 Forbidden\r\n");
         sb.append("Content-Type: text/html\r\n");
-        sb.append(headers);
         sb.append("Content-Length: " + errorMessage.length() + "\r\n");
+        sb.append(headers);
         sb.append("\r\n");
         sb.append(errorMessage + "\r\n");
 
         echo(version + " 403 Forbidden\r\n" +
                 "Content-Type: text/html\r\n" +
-                headers +
                 "Content-Length: " + errorMessage.length() + "\r\n" +
+                headers +
                 "\r\n" +
                 errorMessage + "\r\n" +
                 "\r\n");

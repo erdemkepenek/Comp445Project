@@ -118,6 +118,7 @@ public class HTTPServer{
                         pT.start();
                     }
                         while(!isFinished()) {
+                            updateWindow();
                             yield();
                         }
                     }
@@ -153,6 +154,18 @@ public class HTTPServer{
         }
         keys.clear();
         return;
+    }
+
+    public static void updateWindow() {
+        if(segmentResponses[window[0]]){
+            if(window[0] < window[1]) {
+                window[0] = window[0] + 1;
+            }
+            if(window[1] < segmentResponses.length - 1)
+            {
+                window[1] = window[1] + 1;
+            }
+        }
     }
 
     private static byte[] routeRequest(String method, String fileName,String argument, String version) throws IOException{

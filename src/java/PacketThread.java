@@ -16,7 +16,6 @@ public class PacketThread extends Thread {
     private Packet packet;
     private boolean client;
     private long packetNumber;
-
     private InetSocketAddress SERVER_ADDR = new InetSocketAddress("localhost",8007);
     private SocketAddress ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
 
@@ -38,7 +37,7 @@ public class PacketThread extends Thread {
         if(client) {
            return HTTPClient.window;
         }
-        return HTTPClient.window;
+        return HTTPServer.window;
     }
 
     public int getCurrentType() {
@@ -56,7 +55,7 @@ public class PacketThread extends Thread {
             }
             channel.send(packet.toBuffer(), ROUTER_ADDR);
             timer(channel, packet);
-        }catch(IOException e){
+        }catch(IOException e) {
 
         }
     }
@@ -78,9 +77,6 @@ public class PacketThread extends Thread {
                 channel.send(p.toBuffer(), ROUTER_ADDR);
             } else {
                 keys.clear();
-                if(this.isAcked()) {
-                    return;
-                }
                 channel.receive(buffer);
                 buffer.flip();
                 if(buffer.limit() < Packet.MIN_LEN) {
@@ -91,8 +87,13 @@ public class PacketThread extends Thread {
                     continue;
                 }
                 buffer.flip();
-                this.getAckFlags()[(int) this.packetNumber] = true;
-                updateWindow();
+                    synchronized (this) {
+                    if(!isAcked()) {
+                        this.getAckFlags()[(int) packet.getSequenceNumber()] = true;
+                    }
+                    updateWindow();
+                    notifyAll();
+                }
             }
         }
     }

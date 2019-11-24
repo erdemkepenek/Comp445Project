@@ -52,7 +52,7 @@ public class HTTPClient {
                         }
                     }
 
-                    if(!segmentResponses[(int)packet.getSequenceNumber()]) {
+                    if(!isAcked((int) packet.getSequenceNumber())) {
                         receiveBuffer.add(packet);
                     }
                     segmentResponses[(int)packet.getSequenceNumber()] = true;

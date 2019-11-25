@@ -117,14 +117,14 @@ public class HTTPServer{
                         PacketThread pT = new PacketThread(false, channel, p);
                         pT.start();
                     }
-                        while(!isFinished()) {
-                            updateWindow();
-                            yield();
-                        }
+                    while(!isFinished()) {
+                        updateWindow();
+                        yield();
                     }
                 }
             }
         }
+    }
 
     private static void threeWayHandshake(DatagramChannel channel, Packet packet, SocketAddress router) throws IOException {
         Packet response = packet.toBuilder()
@@ -135,6 +135,7 @@ public class HTTPServer{
         System.out.println("Sending SYN-ACK to:" + ROUTER_ADDR);
         new PacketThread(false, channel, response).start();
         while(!isFinished()){
+            updateWindow();
             yield();
         }
     }
@@ -157,15 +158,19 @@ public class HTTPServer{
     }
 
     public static void updateWindow() {
+        System.out.println(window[0] + " <- W[0]  W[1] ->" + window[1]);
         if(segmentResponses[window[0]]){
             if(window[0] < window[1]) {
+                System.out.println("W[0] + 1");
                 window[0] = window[0] + 1;
             }
             if(window[1] < segmentResponses.length - 1)
             {
+                System.out.println("W[1] + 1");
                 window[1] = window[1] + 1;
             }
         }
+        System.out.println(window[0] + "<- W[0]  W[1] ->" + window[1]);
     }
 
     private static byte[] routeRequest(String method, String fileName,String argument, String version) throws IOException{
@@ -474,5 +479,9 @@ public class HTTPServer{
                 headers += currHeader + "\r\n";
         }
         return headers;
+    }
+
+    public static void ackPacket(long packetNumber) {
+        segmentResponses[(int) packetNumber] = true;
     }
 }

@@ -78,23 +78,29 @@ public class PacketThread extends Thread {
             } else {
                 keys.clear();
                 channel.receive(buffer);
-                buffer.flip();
+
                 if(buffer.limit() < Packet.MIN_LEN) {
                     continue;
                 }
+                buffer.flip();
                 Packet received = Packet.fromBuffer(buffer);
+                buffer.flip();
                 if(received.getType() != getCurrentType()){
                     continue;
                 }
-                buffer.flip();
-                    synchronized (this) {
-                    if(!isAcked()) {
-                        this.getAckFlags()[(int) packet.getSequenceNumber()] = true;
-                    }
-                    updateWindow();
-                    notifyAll();
-                }
+                System.out.println("Received ACK for packet" + received.getSequenceNumber());
+                ackPacket(received.getSequenceNumber());
+                System.out.println("current window[" + getWindow()[0] + ", " + getWindow()[1] + "]");
             }
+        }
+    }
+
+    private void ackPacket(long packetNumber) {
+        if(client){
+            HTTPClient.ackPacket(packetNumber);
+        }
+        else{
+            HTTPServer.ackPacket(packetNumber);
         }
     }
 
@@ -103,14 +109,11 @@ public class PacketThread extends Thread {
     }
 
     public void updateWindow() {
-        if(getAckFlags()[getWindow()[0]]){
-            if(getWindow()[0] < getWindow()[1]) {
-                getWindow()[0] = getWindow()[0] + 1;
-            }
-            if(getWindow()[1] < getAckFlags().length - 1)
-            {
-                getWindow()[1] = getWindow()[1] + 1;
-            }
+        if(client){
+            HTTPClient.updateWindow();
+        }
+        else{
+            HTTPServer.updateWindow();
         }
     }
 

@@ -9,6 +9,7 @@ import java.nio.channels.Selector;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+import static java.lang.Thread.sleep;
 import static java.lang.Thread.yield;
 import static java.nio.channels.SelectionKey.OP_READ;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -18,10 +19,14 @@ public class HTTPClient {
     static InetSocketAddress SERVER_ADDR;
     private DatagramSocket socket;
     static int currentType = 2;
-    static int[] window = {0, 0};
+    static  int[] window = {0, 0};
     static boolean[] segmentResponses = {false};
     static ArrayList<Packet> receiveBuffer = new ArrayList<Packet>();
     private boolean verbose = false;
+
+    public static void ackPacket(long packetNumber) {
+        segmentResponses[(int) packetNumber] = true;
+    }
 
     public void start(URL url, List<String> headers, String method) throws  IOException {
         socket = new DatagramSocket();
@@ -44,18 +49,35 @@ public class HTTPClient {
                             continue;
                         }
                         Packet resp = Packet.fromBuffer(buf);
-                        if (resp.getType() == currentType && withinWindow(resp)) {
-                            packet = resp;
+                        if (resp.getType() == currentType) {
                             if(resp.getSequenceNumber() == 0){
-                                setupWindow(resp.getPayload());
+                                if(!isAcked(0)) {
+                                    setupWindow(resp.getPayload());
+                                    packet = resp;
+                                }
+                            }else {
+                                if(isAcked(0)) {
+                                    packet = resp;
+                                }
                             }
                         }
+                    }
+
+                    if (packet.getSequenceNumber() > segmentResponses.length - 1) {
+                        continue;
+                    }
+
+                    if(!withinWindow(packet)) {
+                        Packet ack = packet.toBuilder().setPayload(new byte[0]).create();
+                        channel.send(ack.toBuffer(), ROUTER_ADDR);
+                        continue;
                     }
 
                     if(!isAcked((int) packet.getSequenceNumber())) {
                         receiveBuffer.add(packet);
                     }
-                    segmentResponses[(int)packet.getSequenceNumber()] = true;
+                    System.out.println("Received packet " + packet.getSequenceNumber());
+                    ackPacket(packet.getSequenceNumber());
                     updateWindow();
                     Packet ack = packet.toBuilder().setPayload(new byte[0]).create();
                     channel.send(ack.toBuffer(), ROUTER_ADDR);
@@ -64,16 +86,20 @@ public class HTTPClient {
         }
     }
 
-    public void updateWindow() {
+    public static void updateWindow() {
+        System.out.println(window[0] + " <- W[0]  W[1] ->" + window[1]);
         if(segmentResponses[window[0]]){
             if(window[0] < window[1]) {
+                System.out.println("W[0] + 1");
                 window[0] = window[0] + 1;
             }
             if(window[1] < segmentResponses.length - 1)
             {
+                System.out.println("W[1] + 1");
                 window[1] = window[1] + 1;
             }
         }
+        System.out.println(window[0] + "<- W[0]  W[1] ->" + window[1]);
     }
 
     private String assemblePayload() {
@@ -110,7 +136,6 @@ public class HTTPClient {
     //SYN type 1
     //SYN ACK type 2
     // ACK type 3
-    // ACK Confirmed type 4
 
     private void threeWayHandshake(DatagramChannel channel, URL url, List<String> headers, String method) throws IOException {
         Packet p = new Packet.Builder()
@@ -209,9 +234,6 @@ public class HTTPClient {
     }
 
     public boolean isAcked(int seqNum) {
-        if(seqNum >= segmentResponses.length){
-            return false;
-        }
         return segmentResponses[seqNum];
     }
 

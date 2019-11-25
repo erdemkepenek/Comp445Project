@@ -73,9 +73,14 @@ public class PacketThread extends Thread {
             selector.select(5000);
             Set<SelectionKey> keys = selector.selectedKeys();
             if (keys.isEmpty()) {
+                if(System.currentTimeMillis() - getRetry() >= 600000){
+                    killSwitch();
+                    return;
+                }
                 System.out.println("Timed-Out, resending...");
                 channel.send(p.toBuffer(), ROUTER_ADDR);
             } else {
+                resetRetry();
                 keys.clear();
                 channel.receive(buffer);
                 buffer.flip();
@@ -93,6 +98,15 @@ public class PacketThread extends Thread {
                 }
                 System.out.println("current window[" + getWindow()[0] + ", " + getWindow()[1] + "]");
             }
+        }
+    }
+
+    private void killSwitch() {
+        if(client){
+            HTTPClient.kill();
+        }
+        else{
+            HTTPServer.kill();
         }
     }
 
@@ -115,6 +129,22 @@ public class PacketThread extends Thread {
         }
         else{
             HTTPServer.updateWindow();
+        }
+    }
+
+    public void resetRetry() {
+        if(client){
+            HTTPClient.resetRetry();
+        }else {
+            HTTPServer.resetRetry();
+        }
+    }
+
+    public long getRetry() {
+        if(client){
+            return HTTPClient.retry;
+        }else {
+            return HTTPServer.retry;
         }
     }
 

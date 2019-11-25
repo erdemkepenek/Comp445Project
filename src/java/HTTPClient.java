@@ -18,6 +18,8 @@ public class HTTPClient {
     static SocketAddress ROUTER_ADDR;
     static InetSocketAddress SERVER_ADDR;
     private DatagramSocket socket;
+
+    static long retry = System.currentTimeMillis();
     static int currentType = 2;
     static  int[] window = {0, 0};
     static boolean[] segmentResponses = {false};
@@ -26,6 +28,15 @@ public class HTTPClient {
 
     public static void ackPacket(long packetNumber) {
         segmentResponses[(int) packetNumber] = true;
+    }
+
+    public static void resetRetry() {
+        retry = System.currentTimeMillis();
+    }
+
+    public static void kill() {
+        System.out.println("Connection closed.");
+        System.exit(0);
     }
 
     public void start(URL url, List<String> headers, String method) throws  IOException {

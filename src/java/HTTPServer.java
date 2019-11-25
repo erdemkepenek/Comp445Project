@@ -23,6 +23,7 @@ public class HTTPServer{
     private static BufferedReader input;
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static boolean verbose;
+    static long retry = System.currentTimeMillis();
     static int currentType = 1;
     static String data;
     static int[] window = {0,0};
@@ -150,8 +151,15 @@ public class HTTPServer{
                             }
                             break;
                     }
+                    Thread.sleep(30000);
+                    currentType = 1;
+                    window = new int[]{0,0};
+                    segmentResponses = new boolean[]{false};
+                    System.out.println("Connection closed.");
                 }
             }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
     }
 
@@ -537,5 +545,13 @@ public class HTTPServer{
 
     public static void ackPacket(long packetNumber) {
         segmentResponses[(int) packetNumber] = true;
+    }
+
+    public static void resetRetry() {
+        retry = System.currentTimeMillis();
+    }
+
+    public static void kill() {
+        Arrays.fill(segmentResponses, true);
     }
 }

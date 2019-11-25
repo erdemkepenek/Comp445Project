@@ -1,126 +1,309 @@
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
 import java.io.*;
 import java.net.*;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.DatagramChannel;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+
+import static java.lang.Thread.sleep;
+import static java.lang.Thread.yield;
+import static java.nio.channels.SelectionKey.OP_READ;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class HTTPClient {
-    private Socket socket;
-    private SSLSocket httpsSocket;
-    private PrintWriter printWriter;
-    private BufferedReader bufferedReader;
+    static SocketAddress ROUTER_ADDR;
+    static InetSocketAddress SERVER_ADDR;
+    private DatagramSocket socket;
+
+    static long retry = System.currentTimeMillis();
+    static int currentType = 2;
+    static String data;
+    static  int[] window = {0, 0};
+    static boolean[] segmentResponses = {false};
+    static ArrayList<Packet> receiveBuffer = new ArrayList<Packet>();
     private boolean verbose = false;
-    private int redirects = 0;
 
-    public void start(String host, int port, String scheme) throws  IOException {
-        if(scheme.equals("https")) {
-            httpsSocket = (SSLSocket) SSLSocketFactory.getDefault().createSocket(InetAddress.getByName(host), port);
-            printWriter = new PrintWriter(httpsSocket.getOutputStream(), true);
-            bufferedReader = new BufferedReader(new InputStreamReader(httpsSocket.getInputStream(), StandardCharsets.UTF_8));
-        }else{
-            socket = new Socket(InetAddress.getByName(host), port);
-            printWriter = new PrintWriter(socket.getOutputStream(), true);
-            bufferedReader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+    public static void ackPacket(long packetNumber) {
+        segmentResponses[(int) packetNumber] = true;
+    }
+
+    public static void resetRetry() {
+        retry = System.currentTimeMillis();
+    }
+
+    public static void kill() {
+        System.out.println("Connection closed.");
+        System.exit(0);
+    }
+
+    public void start(URL url, List<String> headers, String method) throws  IOException {
+        socket = new DatagramSocket();
+        SERVER_ADDR = new InetSocketAddress("localhost",8007);
+        ROUTER_ADDR = new InetSocketAddress("localhost", 3000);
+
+        try(DatagramChannel channel = DatagramChannel.open()) {
+                channel.bind(new InetSocketAddress(41830));
+                threeWayHandshake(channel, url, headers, method);
+                System.out.println("Received Data from " + ROUTER_ADDR);
+                switch(method) {
+                    case "GET":
+                        while (!isFinished()) {
+                            Packet packet = null;
+
+                            while (packet == null) {
+                                ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+                                channel.receive(buf);
+                                buf.flip();
+                                if (buf.limit() < Packet.MIN_LEN) {
+                                    continue;
+                                }
+                                Packet resp = Packet.fromBuffer(buf);
+                                if (resp.getType() == currentType) {
+                                    if (resp.getSequenceNumber() == 0) {
+                                        if (!isAcked(0)) {
+                                            setupWindow(resp.getPayload());
+                                            packet = resp;
+                                        }
+                                    } else {
+                                        if (isAcked(0)) {
+                                            packet = resp;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (packet.getSequenceNumber() > segmentResponses.length - 1) {
+                                continue;
+                            }
+
+                            if (!withinWindow(packet)) {
+                                Packet ack = packet.toBuilder().setPayload(new byte[0]).create();
+                                channel.send(ack.toBuffer(), ROUTER_ADDR);
+                                continue;
+                            }
+
+                            if (!isAcked((int) packet.getSequenceNumber())) {
+                                receiveBuffer.add(packet);
+                            }
+                            System.out.println("Received packet " + packet.getSequenceNumber());
+                            ackPacket(packet.getSequenceNumber());
+                            updateWindow();
+                            Packet ack = packet.toBuilder().setPayload(new byte[0]).create();
+                            channel.send(ack.toBuffer(), ROUTER_ADDR);
+                        }
+                        System.out.println(assemblePayload());
+                        break;
+                    case "POST":
+                        System.out.println("hello");
+                        Packet packet = null;
+                        while(packet == null) {
+                            ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+                            channel.receive(buf);
+                            buf.flip();
+                            if(buf.limit() < Packet.MIN_LEN) {
+                                continue;
+                            }
+                            Packet resp = Packet.fromBuffer(buf);
+                            if(resp.getType() == currentType){
+                                packet = resp;
+                            }
+                        }
+                        System.out.println(new String(packet.getPayload()));
+                        break;
+                }
         }
     }
 
-    public void end() throws  IOException{
-        if(socket !=null || httpsSocket !=null) {
-            if(socket != null){
-                socket.close();
+    public static void updateWindow() {
+        System.out.println(window[0] + " <- W[0]  W[1] ->" + window[1]);
+        if(segmentResponses[window[0]]){
+            if(window[0] < window[1]) {
+                System.out.println("W[0] + 1");
+                window[0] = window[0] + 1;
             }
-            if(httpsSocket != null) {
-                httpsSocket.close();
+            if(window[1] < segmentResponses.length - 1)
+            {
+                System.out.println("W[1] + 1");
+                window[1] = window[1] + 1;
             }
-            printWriter.close();
-            bufferedReader.close();
+        }
+        System.out.println(window[0] + "<- W[0]  W[1] ->" + window[1]);
+    }
+
+    private String assemblePayload() {
+        Collections.sort(receiveBuffer);
+        String payloadString = "";
+        for(int i = 0; i < receiveBuffer.size(); i++) {
+            payloadString += new String(receiveBuffer.get(i).getPayload(), UTF_8);
+        }
+        return payloadString;
+    }
+
+    private boolean withinWindow(Packet resp) {
+        return resp.getSequenceNumber() <= window[1] && resp.getSequenceNumber() >= window[0];
+    }
+
+    private void setupWindow(byte[] payload) {
+        String payloadString = new String(payload, UTF_8);
+        String[] payloadStringArr = payloadString.split("\r\n", 10);
+        String contentLengthHeader = "";
+        for(String s : payloadStringArr) {
+            if(s.contains("Content-Length")){
+                contentLengthHeader = s;
+                break;
+            }
+        }
+        float totalLength = Float.parseFloat(contentLengthHeader.substring(contentLengthHeader.indexOf(' '), contentLengthHeader.length()));
+        double numOfPackets = Math.ceil(totalLength/1013);
+        segmentResponses = new boolean[(int)numOfPackets];
+        window[1] = segmentResponses.length / 2;
+        Arrays.fill(segmentResponses, false);
+    }
+
+    //data type 0
+    //SYN type 1
+    //SYN ACK type 2
+    // ACK type 3
+
+    private void threeWayHandshake(DatagramChannel channel, URL url, List<String> headers, String method) throws IOException {
+        Packet p = new Packet.Builder()
+                .setType(1)
+                .setPortNumber(SERVER_ADDR.getPort())
+                .setPeerAddress(SERVER_ADDR.getAddress())
+                .setSequenceNumber(0L)
+                .setPayload("".getBytes())
+                .create();
+        System.out.println("Sending SYN to router at: " + ROUTER_ADDR);
+        new PacketThread(true, channel, p).start();
+        while (!isFinished()) {
+            yield();
+        }
+        segmentResponses = new boolean[]{false};
+
+        Packet packet = null;
+        //receive SYN-ACK
+        while(packet == null) {
+            ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+            channel.receive(buf);
+            buf.flip();
+            if(buf.limit() < Packet.MIN_LEN) {
+                continue;
+            }
+            Packet resp = Packet.fromBuffer(buf);
+            if(resp.getType() == currentType){
+                packet = resp;
+            }
+        }
+        System.out.println("Received SYN-ACK from " + ROUTER_ADDR);
+        currentType = 0;
+        switch(method) {
+            case "GET":
+                Packet ack = packet.toBuilder()
+                        .setType(3)
+                        .setSequenceNumber(0)
+                        .setPayload(get(url,headers)).create();
+                System.out.println("Sending ACK & Request:\r\n\"" +new String(get(url,headers)) + "\"\r\nto router at " + ROUTER_ADDR);
+                new PacketThread(true, channel, ack).start();
+                while (!isFinished()) {
+                    yield();
+                }
+                segmentResponses = new boolean[]{false};
+                break;
+            case "POST":
+                System.out.println("Sending ACK & Request & Data:\r\n\"" +new String(post(url,headers,data)) + "\"\r\nto router at " + ROUTER_ADDR);
+                Packet ack2 = packet.toBuilder()
+                        .setType(3)
+                        .setSequenceNumber(0)
+                        .setPayload(post(url,headers,data)).create();
+                new PacketThread(true, channel, ack2).start();
+                while (!isFinished()) {
+                    yield();
+                }
+                segmentResponses = new boolean[]{false};
+                break;
         }
     }
 
-    public void get(URL url, List<String> headers) throws IOException{
+    public void timer(DatagramChannel channel, Packet p ) throws IOException {
+        ByteBuffer buffer = ByteBuffer
+                .allocate(Packet.MAX_LEN)
+                .order(ByteOrder.BIG_ENDIAN);
+
+            buffer.clear();
+            channel.configureBlocking(false);
+            Selector selector = Selector.open();
+            channel.register(selector, OP_READ);
+            selector.select(5000);
+
+            Set<SelectionKey> keys = selector.selectedKeys();
+            if (keys.isEmpty()) {
+                System.out.println("Timed-Out, resending...");
+                channel.send(p.toBuffer(), ROUTER_ADDR);
+            } else {
+                keys.clear();
+                channel.receive(buffer);
+                buffer.flip();
+                Packet received = Packet.fromBuffer(buffer);
+                buffer.flip();
+                if(received.getType() != currentType){
+                    channel.send(p.toBuffer(), ROUTER_ADDR);
+                    timer(channel, p);
+                }
+            }
+        }
+
+    public byte[] get(URL url, List<String> headers) throws IOException{
         String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
-        printWriter.print("GET "+ pathString + queryString + " HTTP/1.0\r\n");
-        printWriter.print("Host: " + url.getHost() + "\r\n");
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("GET "+ pathString +' '+ queryString + " HTTP/1.0\r\n");
+        sb.append("Host: " + url.getHost());
         for(String header: headers) {
-            printWriter.print(header + "\r\n");
+            sb.append("\r\n"+header);
         }
-        printWriter.print("\r\n");
-        printWriter.flush();
 
-        bufferedReader.mark(1000);
-        verifyStatusCode(headers, null);
+        return sb.toString().getBytes();
+    }
 
-        if(!verbose) {
-            String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
-            while (!responseLine.equals("")) {
-                responseLine = bufferedReader.readLine();
+    public boolean isFinished(){
+        for(Boolean seg : segmentResponses)
+        {
+            if(!seg){
+                return false;
             }
         }
-
-        bufferedReader.lines().forEach(System.out::println);
+        return true;
     }
 
-    private void verifyStatusCode(List<String> headers, String data) throws IOException {
-        String statusCode = bufferedReader.readLine();
-        if(statusCode.contains("301") || statusCode.contains("302")) {
-            redirect(headers, data);
-        }else{
-            bufferedReader.reset();
-        }
-    }
-
-    private void redirect(List<String> headers, String data) throws IOException {
-        redirects ++;
-        if(redirects > 5) {
-            throw new RuntimeException("The server requested a redirect over 5 times, this might be due to an infinite redirect loop.");
-        }
-        String newLocation = bufferedReader.readLine();
-        while(!newLocation.contains("Location")) {
-            newLocation = bufferedReader.readLine();
-        }
-        String newHost = newLocation.substring(newLocation.indexOf(' ')+1);
-        if(!newHost.contains("http")) {
-            newHost = socket != null? "http://" + socket.getInetAddress().getHostName() + newHost: "https://" + httpsSocket.getInetAddress().getHostName() + newHost;
-        }
-        URL redirectURL = new URL(newHost);
-        end();
-        int port = redirectURL.getPort() != -1? redirectURL.getPort(): redirectURL.getDefaultPort();
-        start(redirectURL.getHost(), port, redirectURL.getProtocol());
-        if(data!=null) {
-            post(redirectURL, headers, data);
-        }else {
-            get(redirectURL, headers);
-        }
+    public boolean isAcked(int seqNum) {
+        return segmentResponses[seqNum];
     }
 
 
-    public void post(URL url, List<String> headers, String data) throws IOException {
+
+
+
+    public byte[] post(URL url, List<String> headers, String data) throws IOException {
         String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
-        printWriter.println("POST "+ pathString + queryString+" HTTP/1.0");
-        printWriter.println("Host: "+ url.getHost());
-        printWriter.println("Content-Length: "+data.length());
-        printWriter.println("Content-Type: application/json");
-        if(headers != null)
-            headers.forEach(printWriter::println);
-        printWriter.println("");
-        printWriter.println(data);
-        printWriter.flush();
-
-        bufferedReader.mark(1000);
-        verifyStatusCode(headers, data);
-        if(!verbose) {
-            String responseLine = bufferedReader.readLine() != null? bufferedReader.readLine(): "";
-            while (!responseLine.equals("")) {
-                responseLine = bufferedReader.readLine();
+        StringBuilder sb = new StringBuilder();
+        sb.append("POST "+ pathString +' '+ queryString+" HTTP/1.0\r\n");
+        sb.append("Host: "+ url.getHost() +"\r\n");
+        sb.append("Content-Length: "+data.length() +"\r\n");
+        sb.append("Content-Type: application/json");
+        if(headers != null) {
+            for (String header : headers) {
+                sb.append("\r\n"+header);
             }
         }
+        sb.append("\r\n"+data);
 
-        bufferedReader.lines().forEach(System.out::println);
+        return sb.toString().getBytes();
     }
 
     public void setVerbose(boolean verbose) {
@@ -132,30 +315,18 @@ public class HTTPClient {
         HTTPClient client = new HTTPClient();
         client.setVerbose(true);
         try {
-            //trying to establish connection to the server
             ArrayList<String> headers = new ArrayList<>();
-            String host = "http://httpbin.org";
+            String host = "http://localhost:8007";
+            String path = "/helloworld.txt";
             String arguments = "?hello=true";
-            String data = "{\"Assignment\":\"1\"}";
-            URL urlGet = new URL(host+"/get"+arguments);
-            URL urlPost = new URL(host+"/post"+arguments);
-            int getPort = urlGet.getPort() != -1? urlGet.getPort(): urlGet.getDefaultPort();
-            int postPort = urlPost.getPort() != -1? urlPost.getPort(): urlPost.getDefaultPort();
+            data = "Hello World";
             headers.add("User-Agent: Concordia-HTTP/1.0");
-            System.out.println("TEST GET REQUEST");
-            client.start(urlGet.getHost(), getPort, urlGet.getProtocol());
-            client.get(urlGet, headers);
-            client.end();
-            System.out.println("\nTEST POST REQUEST");
-            client.start(urlPost.getHost(), postPort, urlPost.getProtocol());
-            client.post(urlPost,headers,data);
+            URL urlGet = new URL(host+path+arguments);
+            client.start(urlGet, headers, "POST");
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {
             System.err.println("Connection is not established, because the server may have problems."+e.getMessage());
-        } finally {
-            client.end();
         }
-
     }
 }

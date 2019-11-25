@@ -19,6 +19,7 @@ public class HTTPClient {
     static InetSocketAddress SERVER_ADDR;
     private DatagramSocket socket;
     static int currentType = 2;
+    static String data;
     static  int[] window = {0, 0};
     static boolean[] segmentResponses = {false};
     static ArrayList<Packet> receiveBuffer = new ArrayList<Packet>();
@@ -37,52 +38,72 @@ public class HTTPClient {
                 channel.bind(new InetSocketAddress(41830));
                 threeWayHandshake(channel, url, headers, method);
                 System.out.println("Received Data from " + ROUTER_ADDR);
+                switch(method) {
+                    case "GET":
+                        while (!isFinished()) {
+                            Packet packet = null;
 
-                while(!isFinished()) {
-                    Packet packet = null;
-
-                    while (packet == null) {
-                        ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
-                        channel.receive(buf);
-                        buf.flip();
-                        if (buf.limit() < Packet.MIN_LEN) {
-                            continue;
-                        }
-                        Packet resp = Packet.fromBuffer(buf);
-                        if (resp.getType() == currentType) {
-                            if(resp.getSequenceNumber() == 0){
-                                if(!isAcked(0)) {
-                                    setupWindow(resp.getPayload());
-                                    packet = resp;
+                            while (packet == null) {
+                                ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+                                channel.receive(buf);
+                                buf.flip();
+                                if (buf.limit() < Packet.MIN_LEN) {
+                                    continue;
                                 }
-                            }else {
-                                if(isAcked(0)) {
-                                    packet = resp;
+                                Packet resp = Packet.fromBuffer(buf);
+                                if (resp.getType() == currentType) {
+                                    if (resp.getSequenceNumber() == 0) {
+                                        if (!isAcked(0)) {
+                                            setupWindow(resp.getPayload());
+                                            packet = resp;
+                                        }
+                                    } else {
+                                        if (isAcked(0)) {
+                                            packet = resp;
+                                        }
+                                    }
                                 }
                             }
+
+                            if (packet.getSequenceNumber() > segmentResponses.length - 1) {
+                                continue;
+                            }
+
+                            if (!withinWindow(packet)) {
+                                Packet ack = packet.toBuilder().setPayload(new byte[0]).create();
+                                channel.send(ack.toBuffer(), ROUTER_ADDR);
+                                continue;
+                            }
+
+                            if (!isAcked((int) packet.getSequenceNumber())) {
+                                receiveBuffer.add(packet);
+                            }
+                            System.out.println("Received packet " + packet.getSequenceNumber());
+                            ackPacket(packet.getSequenceNumber());
+                            updateWindow();
+                            Packet ack = packet.toBuilder().setPayload(new byte[0]).create();
+                            channel.send(ack.toBuffer(), ROUTER_ADDR);
                         }
-                    }
-
-                    if (packet.getSequenceNumber() > segmentResponses.length - 1) {
-                        continue;
-                    }
-
-                    if(!withinWindow(packet)) {
-                        Packet ack = packet.toBuilder().setPayload(new byte[0]).create();
-                        channel.send(ack.toBuffer(), ROUTER_ADDR);
-                        continue;
-                    }
-
-                    if(!isAcked((int) packet.getSequenceNumber())) {
-                        receiveBuffer.add(packet);
-                    }
-                    System.out.println("Received packet " + packet.getSequenceNumber());
-                    ackPacket(packet.getSequenceNumber());
-                    updateWindow();
-                    Packet ack = packet.toBuilder().setPayload(new byte[0]).create();
-                    channel.send(ack.toBuffer(), ROUTER_ADDR);
+                        System.out.println(assemblePayload());
+                        break;
+                    case "POST":
+                        System.out.println("hello");
+                        Packet packet = null;
+                        while(packet == null) {
+                            ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+                            channel.receive(buf);
+                            buf.flip();
+                            if(buf.limit() < Packet.MIN_LEN) {
+                                continue;
+                            }
+                            Packet resp = Packet.fromBuffer(buf);
+                            if(resp.getType() == currentType){
+                                packet = resp;
+                            }
+                        }
+                        System.out.println(new String(packet.getPayload()));
+                        break;
                 }
-                System.out.println(assemblePayload());
         }
     }
 
@@ -168,17 +189,32 @@ public class HTTPClient {
         }
         System.out.println("Received SYN-ACK from " + ROUTER_ADDR);
         currentType = 0;
-        Packet ack = packet.toBuilder()
-                .setType(3)
-                .setSequenceNumber(0)
-                .setPayload(get(url,headers))
-                .create();
-        System.out.println("Sending ACK & Request:\r\n\"" +new String(get(url,headers)) + "\"\r\nto router at " + ROUTER_ADDR);
-        new PacketThread(true, channel, ack).start();
-        while (!isFinished()) {
-            yield();
+        switch(method) {
+            case "GET":
+                Packet ack = packet.toBuilder()
+                        .setType(3)
+                        .setSequenceNumber(0)
+                        .setPayload(get(url,headers)).create();
+                System.out.println("Sending ACK & Request:\r\n\"" +new String(get(url,headers)) + "\"\r\nto router at " + ROUTER_ADDR);
+                new PacketThread(true, channel, ack).start();
+                while (!isFinished()) {
+                    yield();
+                }
+                segmentResponses = new boolean[]{false};
+                break;
+            case "POST":
+                System.out.println("Sending ACK & Request & Data:\r\n\"" +new String(post(url,headers,data)) + "\"\r\nto router at " + ROUTER_ADDR);
+                Packet ack2 = packet.toBuilder()
+                        .setType(3)
+                        .setSequenceNumber(0)
+                        .setPayload(post(url,headers,data)).create();
+                new PacketThread(true, channel, ack2).start();
+                while (!isFinished()) {
+                    yield();
+                }
+                segmentResponses = new boolean[]{false};
+                break;
         }
-        segmentResponses = new boolean[]{false};
     }
 
     public void timer(DatagramChannel channel, Packet p ) throws IOException {
@@ -237,26 +273,48 @@ public class HTTPClient {
         return segmentResponses[seqNum];
     }
 
+    private static Packet[] getPacketList(byte[] payload) {
+        double totalSize = payload.length;
+        double numOfPackets = Math.ceil(totalSize/1013);
+        Packet[] packets = new Packet[(int)numOfPackets];
+        for(int i = 0; i < numOfPackets; i++) {
+            Packet p = new Packet.Builder().setType(0).setSequenceNumber(i).setPeerAddress(SERVER_ADDR.getAddress()).setPortNumber(SERVER_ADDR.getPort()).setPayload(new byte[1013]).create();
+            packets[i] = p;
+        }
+        int byteIndex = 0;
+        for(int i = 0 ; i < packets.length; i++) {
+            byte[] packetPayload = packets[i].getPayload();
+            for(int j = 0; j < 1013; j++) {
+                if(byteIndex > totalSize - 1) {
+                    packets[i] = packets[i].toBuilder().setPayload(Arrays.copyOf(packetPayload, j)).create();
+                    return packets;
+                }
+                packetPayload[j] = payload[byteIndex];
+                byteIndex++;
+            }
+        }
+        return packets;
+    }
 
 
 
-    public void post(URL url, List<String> headers, String data) throws IOException {
+
+    public byte[] post(URL url, List<String> headers, String data) throws IOException {
         String pathString = url.getPath().equals("")? "/": url.getPath();
         String queryString = url.getQuery() != null? "?" + url.getQuery(): "";
         StringBuilder sb = new StringBuilder();
-        sb.append("POST "+ pathString + queryString+" HTTP/1.0\r\n");
+        sb.append("POST "+ pathString +' '+ queryString+" HTTP/1.0\r\n");
         sb.append("Host: "+ url.getHost() +"\r\n");
         sb.append("Content-Length: "+data.length() +"\r\n");
-        sb.append("Content-Type: application/json\r\n");
+        sb.append("Content-Type: application/json");
         if(headers != null) {
             for (String header : headers) {
-                sb.append(header + "\r\n");
+                sb.append("\r\n"+header);
             }
         }
-        sb.append("\r\n");
-        sb.append(data);
+        sb.append("\r\n"+data);
 
-        byte[] payload = sb.toString().getBytes();
+        return sb.toString().getBytes();
     }
 
     public void setVerbose(boolean verbose) {
@@ -270,11 +328,12 @@ public class HTTPClient {
         try {
             ArrayList<String> headers = new ArrayList<>();
             String host = "http://localhost:8007";
-            String path = "/large.txt";
+            String path = "/helloworld.txt";
             String arguments = "?hello=true";
+            data = "Hello World";
             headers.add("User-Agent: Concordia-HTTP/1.0");
             URL urlGet = new URL(host+path+arguments);
-            client.start(urlGet, headers, "GET");
+            client.start(urlGet, headers, "POST");
         } catch (UnknownHostException e) {
             System.err.println("The Connection has not been made");
         } catch (IOException e) {

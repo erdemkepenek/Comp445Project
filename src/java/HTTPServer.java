@@ -24,6 +24,7 @@ public class HTTPServer{
     private static File rootPath = new File(Paths.get("").toAbsolutePath().toString() + "/data");
     private static boolean verbose;
     static int currentType = 1;
+    static String data;
     static int[] window = {0,0};
     public static boolean[] segmentResponses = {false};
     private static List<String> headers;
@@ -75,6 +76,7 @@ public class HTTPServer{
                     .order(ByteOrder.BIG_ENDIAN);
 
             for (; ; ) {
+                Packet packet = null;
                 buf.clear();
                 SocketAddress router = channel.receive(buf);
 
@@ -83,7 +85,7 @@ public class HTTPServer{
                 if(buf.limit() < Packet.MIN_LEN) {
                     continue;
                 }
-                Packet packet = Packet.fromBuffer(buf);
+                packet = Packet.fromBuffer(buf);
                 buf.flip();
 
                 if(packet.getType() != currentType || packet.getSequenceNumber() < window[0] || packet.getSequenceNumber() > window[1]) {
@@ -99,6 +101,58 @@ public class HTTPServer{
 
                 if(packet.getType() == 3) {
                     System.out.println("Received ACK & Request from " + ROUTER_ADDR);
+                    String payloadString = new String(packet.getPayload(),UTF_8);
+                    String[] arrOfStr = payloadString.split("\r\n");
+                    StringTokenizer st = new StringTokenizer(arrOfStr[0]);
+                    String method = st.nextToken();
+                    String fileName = st.nextToken();
+                    String argument = st.nextToken();
+                    String version = st.nextToken();
+                    System.out.println(method + fileName + argument + version);
+                    System.out.println(new String (packet.getPayload()));
+                    switch(method) {
+                        case "GET":
+                            currentType = 0;
+                            byte[] request = routeRequest(method, fileName, argument, version);
+                            Packet[] packets = getPacketList(request);
+                            segmentResponses = new boolean[packets.length];
+                            window[0] = 0;
+                            window[1] = segmentResponses.length / 2;
+                            Arrays.fill(segmentResponses, false);
+                            for(Packet p : packets) {
+                                PacketThread pT = new PacketThread(false, channel, p);
+                                pT.start();
+                            }
+                            while(!isFinished()) {
+                                updateWindow();
+                                yield();
+                            }
+                            break;
+                        case "POST":
+                            data = "";
+                            System.out.println(arrOfStr.length);
+                            for(int i =5; i< arrOfStr.length; i++){
+                                data = data + arrOfStr[i];
+                            }
+                            System.out.println("Received Data : " +data);
+                            currentType = 2;
+                            segmentResponses = new boolean[]{false};
+                            Packet response = packet.toBuilder()
+                                    .setType(2)
+                                    .setSequenceNumber(0)
+                                    .setPayload(routeRequest(method, fileName, argument, version))
+                                    .create();
+                            System.out.println("Sending Response and ACK for request to:" + ROUTER_ADDR);
+                            new PacketThread(false, channel, response).start();
+                            while(!isFinished()){
+                                updateWindow();
+                                yield();
+                            }
+                            break;
+                    }
+                }
+               /* if(packet.getType() == 0){
+                    System.out.println("Received ACK & Request & Data from " + ROUTER_ADDR);
                     currentType = 0;
                     String payloadString = new String(packet.getPayload(),UTF_8);
                     String[] arrOfStr = payloadString.split("\r\n", 4);
@@ -107,21 +161,21 @@ public class HTTPServer{
                     String fileName = st.nextToken();
                     String argument = st.nextToken();
                     String version = st.nextToken();
+                    System.out.println(method + fileName + argument + version);
                     byte[] request = routeRequest(method, fileName, argument, version);
-                    Packet[] packets = getPacketList(request);
-                    segmentResponses = new boolean[packets.length];
-                    window[0] = 0;
-                    window[1] = segmentResponses.length / 2;
-                    Arrays.fill(segmentResponses, false);
-                    for(Packet p : packets) {
-                        PacketThread pT = new PacketThread(false, channel, p);
-                        pT.start();
-                    }
-                    while(!isFinished()) {
+                    Packet response = packet.toBuilder()
+                            .setType(2)
+                            .setSequenceNumber(0)
+                            .setPayload(request)
+                            .create();
+                    currentType = 3;
+                    System.out.println("Sending ACK Request Data to:" + ROUTER_ADDR);
+                    new PacketThread(false, channel, response).start();
+                    while(!isFinished()){
                         updateWindow();
                         yield();
                     }
-                }
+                }*/
             }
         }
     }
@@ -138,6 +192,9 @@ public class HTTPServer{
             updateWindow();
             yield();
         }
+    }
+    public static boolean isAcked(int seqNum) {
+        return segmentResponses[seqNum];
     }
 
     public static void timer(DatagramChannel channel, Packet p ) throws IOException {
@@ -158,19 +215,15 @@ public class HTTPServer{
     }
 
     public static void updateWindow() {
-        System.out.println(window[0] + " <- W[0]  W[1] ->" + window[1]);
         if(segmentResponses[window[0]]){
             if(window[0] < window[1]) {
-                System.out.println("W[0] + 1");
                 window[0] = window[0] + 1;
             }
             if(window[1] < segmentResponses.length - 1)
             {
-                System.out.println("W[1] + 1");
                 window[1] = window[1] + 1;
             }
         }
-        System.out.println(window[0] + "<- W[0]  W[1] ->" + window[1]);
     }
 
     private static byte[] routeRequest(String method, String fileName,String argument, String version) throws IOException{
@@ -296,17 +349,13 @@ public class HTTPServer{
     }
 
     private static byte[] processPost(String fileName, String version) throws IOException{
-        String headers = getHeaders(true);
+        String headers = "";
         if(!fileName.equals("/")) {
             try {
                 if(fileName.contains("..")) {
                     throw new RuntimeException();
                 }
                 int currChar;
-                String data = "";
-                while(input.ready() && (currChar = input.read()) != -1) {
-                    data += (char)currChar;
-                }
 
                 String[] parts = fileName.split("(?=/)");
                 if(parts.length > 1){
@@ -443,6 +492,36 @@ public class HTTPServer{
             }
         }
         return true;
+    }
+
+    private static String assemblePayload() {
+        Collections.sort(receiveBuffer);
+        String payloadString = "";
+        for(int i = 0; i < receiveBuffer.size(); i++) {
+            payloadString += new String(receiveBuffer.get(i).getPayload(), UTF_8);
+        }
+        return payloadString;
+    }
+
+    private static boolean withinWindow(Packet resp) {
+        return resp.getSequenceNumber() <= window[1] && resp.getSequenceNumber() >= window[0];
+    }
+
+    private static void setupWindow(byte[] payload) {
+        String payloadString = new String(payload, UTF_8);
+        String[] payloadStringArr = payloadString.split("\r\n", 10);
+        String contentLengthHeader = "";
+        for(String s : payloadStringArr) {
+            if(s.contains("Content-Length")){
+                contentLengthHeader = s;
+                break;
+            }
+        }
+        float totalLength = Float.parseFloat(contentLengthHeader.substring(contentLengthHeader.indexOf(' '), contentLengthHeader.length()));
+        double numOfPackets = Math.ceil(totalLength/1013);
+        segmentResponses = new boolean[(int)numOfPackets];
+        window[1] = segmentResponses.length / 2;
+        Arrays.fill(segmentResponses, false);
     }
 
     private static Packet[] getPacketList(byte[] payload) {

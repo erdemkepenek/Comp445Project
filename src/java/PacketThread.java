@@ -78,18 +78,19 @@ public class PacketThread extends Thread {
             } else {
                 keys.clear();
                 channel.receive(buffer);
-
+                buffer.flip();
                 if(buffer.limit() < Packet.MIN_LEN) {
                     continue;
                 }
-                buffer.flip();
                 Packet received = Packet.fromBuffer(buffer);
                 buffer.flip();
                 if(received.getType() != getCurrentType()){
                     continue;
                 }
                 System.out.println("Received ACK for packet" + received.getSequenceNumber());
-                ackPacket(received.getSequenceNumber());
+                if(received.getSequenceNumber() < getAckFlags().length) {
+                    ackPacket(received.getSequenceNumber());
+                }
                 System.out.println("current window[" + getWindow()[0] + ", " + getWindow()[1] + "]");
             }
         }

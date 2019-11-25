@@ -273,28 +273,6 @@ public class HTTPClient {
         return segmentResponses[seqNum];
     }
 
-    private static Packet[] getPacketList(byte[] payload) {
-        double totalSize = payload.length;
-        double numOfPackets = Math.ceil(totalSize/1013);
-        Packet[] packets = new Packet[(int)numOfPackets];
-        for(int i = 0; i < numOfPackets; i++) {
-            Packet p = new Packet.Builder().setType(0).setSequenceNumber(i).setPeerAddress(SERVER_ADDR.getAddress()).setPortNumber(SERVER_ADDR.getPort()).setPayload(new byte[1013]).create();
-            packets[i] = p;
-        }
-        int byteIndex = 0;
-        for(int i = 0 ; i < packets.length; i++) {
-            byte[] packetPayload = packets[i].getPayload();
-            for(int j = 0; j < 1013; j++) {
-                if(byteIndex > totalSize - 1) {
-                    packets[i] = packets[i].toBuilder().setPayload(Arrays.copyOf(packetPayload, j)).create();
-                    return packets;
-                }
-                packetPayload[j] = payload[byteIndex];
-                byteIndex++;
-            }
-        }
-        return packets;
-    }
 
 
 

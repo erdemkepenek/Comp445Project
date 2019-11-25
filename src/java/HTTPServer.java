@@ -151,31 +151,6 @@ public class HTTPServer{
                             break;
                     }
                 }
-               /* if(packet.getType() == 0){
-                    System.out.println("Received ACK & Request & Data from " + ROUTER_ADDR);
-                    currentType = 0;
-                    String payloadString = new String(packet.getPayload(),UTF_8);
-                    String[] arrOfStr = payloadString.split("\r\n", 4);
-                    StringTokenizer st = new StringTokenizer(arrOfStr[0]);
-                    String method = st.nextToken();
-                    String fileName = st.nextToken();
-                    String argument = st.nextToken();
-                    String version = st.nextToken();
-                    System.out.println(method + fileName + argument + version);
-                    byte[] request = routeRequest(method, fileName, argument, version);
-                    Packet response = packet.toBuilder()
-                            .setType(2)
-                            .setSequenceNumber(0)
-                            .setPayload(request)
-                            .create();
-                    currentType = 3;
-                    System.out.println("Sending ACK Request Data to:" + ROUTER_ADDR);
-                    new PacketThread(false, channel, response).start();
-                    while(!isFinished()){
-                        updateWindow();
-                        yield();
-                    }
-                }*/
             }
         }
     }

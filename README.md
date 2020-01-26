@@ -1,4 +1,4 @@
-# Data Network and Communications Project
+# Data Communications and Computer Network Class Project
 
 ## TCP & UDP Connection
 
